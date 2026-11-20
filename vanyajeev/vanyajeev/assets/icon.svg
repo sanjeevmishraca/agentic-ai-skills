@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2a1f17"/>
+      <stop offset="0.55" stop-color="#8a4f22"/>
+      <stop offset="1" stop-color="#e2a34a"/>
+    </linearGradient>
+    <radialGradient id="sun" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#fff1c9"/>
+      <stop offset="0.6" stop-color="#f6c76a"/>
+      <stop offset="1" stop-color="#e9a443"/>
+    </radialGradient>
+    <clipPath id="r"><rect x="8" y="8" width="240" height="240" rx="56"/></clipPath>
+  </defs>
+  <g clip-path="url(#r)">
+    <rect x="0" y="0" width="256" height="256" fill="url(#sky)"/>
+    <circle cx="128" cy="150" r="62" fill="url(#sun)"/>
+    <!-- savanna ground -->
+    <path d="M0 176 C60 168 110 172 150 170 C190 168 220 166 256 170 L256 256 L0 256 Z" fill="#17110c"/>
+    <!-- acacia: flat umbrella crown, forked trunk -->
+    <g fill="#17110c">
+      <path d="M44 108 C70 96 112 94 150 98 C178 101 200 104 214 110 C204 118 182 121 158 120 C130 122 92 122 66 119 C54 117 46 114 44 108 Z"/>
+      <path d="M126 119 L132 119 L130 140 L139 120 L144 121 L133 150 L136 176 L122 176 L125 150 L113 121 L119 120 L127 140 Z"/>
+    </g>
+    <!-- aperture ring hint -->
+    <circle cx="128" cy="150" r="74" fill="none" stroke="#f6c76a" stroke-opacity="0.35" stroke-width="3"/>
+  </g>
+</svg>
