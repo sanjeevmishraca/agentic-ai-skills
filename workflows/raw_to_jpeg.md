@@ -1,7 +1,11 @@
-# Workflow: RAW Image → JPEG Processor
+# Workflow: RAW → Finished, Print-Ready JPEG
+
+**Version 3.0.0 "final" — released 2026-11-20 10:22 PST** (see `CHANGELOG.md`)
 
 ## Objective
-Convert RAW camera files (CR2, CR3, NEF, ARW, RAF, DNG, etc.) to high-quality JPEG images using Adobe Photoshop's Camera Raw engine — the same engine powering Adobe Bridge. Iterate on the output with user feedback until they are satisfied.
+Turn wildlife RAW files (Canon CR3/CR2 and other LibRaw formats) into finished images in the
+photographer's own house look, finished like a fine-art wildlife print, upscaled to the largest
+useful print size, and signed. Review every image before handing it over.
 
 ---
 
@@ -9,189 +13,135 @@ Convert RAW camera files (CR2, CR3, NEF, ARW, RAF, DNG, etc.) to high-quality JP
 
 | Input | Description | Required |
 |-------|-------------|----------|
-| `source` | Path to a folder containing RAW files **or** a `.zip` archive | Yes |
-| `settings` | Camera Raw adjustment overrides (JSON) | No – defaults applied |
+| `source` | Folder of RAW files, a single RAW, or a `.zip` | Yes |
+| `plan` | Per-image JSON (exposure, crop, subject box, face point) | No – automatic if omitted |
+| signature | `SM_signature_black.png` / `SM_signature_white.png` folder (`--sig-dir` or `RTJ_SIGNATURE_DIR`) | No – signing skipped if absent |
 
 ---
 
-## Tools Used
+## Tools Used (pipeline order)
 
-| Tool | Purpose |
-|------|---------|
-| `tools/raw_to_jpeg.py` | Python orchestrator — validates input, writes job file, launches Photoshop |
-| `tools/process_raw.jsx` | ExtendScript executed inside Photoshop — applies Camera Raw settings, exports JPEG |
+| Stage | Tool | What it does |
+|-------|------|--------------|
+| orchestrator | `tools/raw_to_jpeg.py` | Runs stages 1–4 per RAW, writes logs/results |
+| 1 Develop | `tools/photo_develop.py` + `tools/calib.json` | House look (ACR emulation), auto exposure, optional crop |
+| 2 Finish | `tools/expert_finish.py` | Subject mask + local expert edits |
+| 3 Upscale | `tools/upscale_print.py` | 3× print master with defringe + masked luminance sharpening |
+| 4 Sign | `tools/sign_image.py` | Signature bottom-right on copies in `signed/` |
+
+All intermediates are lossless PNG (in `.tmp/`); only final outputs are JPEG.
 
 ---
 
 ## Steps
 
-### Step 1 – Collect Input
+### Step 1 – Collect input
+Ask for the RAW folder path (or a zip). Confirm it exists and contains RAW files.
 
-Ask the user:
-
-> "Please share the **folder path** where your RAW images are stored, or **drop a .zip file** containing them."
-
-- If they give a folder path: verify it exists with `os.path.exists()`
-- If they drop/share a zip: use the zip path as `--input`
-- Extract and scan for RAW files. If none found, tell the user which extensions are supported and ask again.
-
----
-
-### Step 2 – Run Initial Processing (Default Settings)
-
-Run with default Camera Raw settings first:
-
+### Step 2 – First pass (automatic)
 ```bash
-python tools/raw_to_jpeg.py --input "<source_path>"
+python tools/raw_to_jpeg.py --input "<source>" --sig-dir "<signature folder>"
 ```
+Automatic exposure, automatic subject box (saliency), no crop, no face work.
 
-Output defaults to `<source_path>/Processed`. Pass `--output <folder>` to override.
+### Step 3 – Review every image yourself before handing over (mandatory)
+Open each `<name>_expert.jpg` full frame **and** 100 % crops (face/eyes, body, background).
+Check:
+- **Exposure** — not underexposed; the photographer prefers bright, airy results.
+- **Composition** — animal on a third line with open space in the direction of its gaze/motion; keep 3:2
+  unless a panoramic crop serves the image better.
+- **Colour** — golden coat, no blue cast in shaded fur or dark markings, calm background.
+- **Detail** — no smeared fur, no blotchy or banded background, no halos or colour fringes.
+- **Print master** — at 100 %: no halos, fringes, grit or blocking in smooth areas.
 
-Default settings applied (user's preferred style):
-- JPEG Quality: 10/12, sRGB, 300 DPI
-- White Balance: As Shot
-- **auto_brightness: True** — half-size probe render analysed per image; EV computed to protect highlights (P98=225) and hit natural midtones (P50=115); user's `exposure` offset added on top
-- **auto_crop: True** — corner-based background model detects subjects clipped at any edge, crops to first clear gap
-- Contrast: +30, Clarity: +25 (punch)
-- Saturation: +15, Vibrance: +30 (vivid colours)
-- Sharpness: 55
-
-The tool will:
-1. For each RAW file: render half-size probe → compute auto EV → render full-size → apply tone/colour → auto-crop → save JPEG
-2. Results written to `.tmp/raw_processing_results.json`
-
----
-
-### Step 3 – Share Results with User
-
-After processing completes:
-
-1. List all processed JPEG filenames from `results["processed"]`
-2. Tell the user: "Your images have been processed and saved to `<source_path>/Processed/`"
-3. Provide the full path to the output folder
-4. If any files failed, show which ones and the error message
-
----
-
-### Step 4 – Gather Feedback
-
-Ask the user:
-
-> "Are you happy with the results? If you'd like adjustments, tell me what you'd like changed.
->
-> For example:
-> - *'Make it brighter'* → I'll increase exposure
-> - *'Warmer tones'* → I'll raise the white balance temperature
-> - *'More vibrant colours'* → I'll increase vibrance/saturation
-> - *'Less noise'* → I'll increase noise reduction
-> - *'Sharper'* → I'll increase sharpness"
-
----
-
-### Step 5 – Translate Feedback → Settings
-
-Map natural language feedback to Camera Raw parameters:
-
-| User Says | Parameter | Adjustment |
-|-----------|-----------|------------|
-| Brighter / too dark | `exposure` | +0.5 to +1.5 |
-| Darker / too bright | `exposure` | -0.5 to -1.5 |
-| More contrast | `contrast` | +20 to +40 |
-| Recover highlights | `highlights` | -30 to -60 |
-| Lift shadows | `shadows` | +20 to +40 |
-| Warmer | `temperature` + `whiteBalance: custom` | +500 to +1500 K |
-| Cooler | `temperature` + `whiteBalance: custom` | -500 to -1500 K |
-| More vibrant / pop | `vibrance` | +20 to +40 |
-| More saturated | `saturation` | +15 to +30 |
-| Less saturated / muted | `saturation` | -15 to -30 |
-| Sharper | `sharpness` | +20 to +40 (cap at 100) |
-| Cleaner / less noise | `colorNoiseReduction` | +20 to +30, `luminanceSmoothing` +10 |
-| More clarity / detail | `clarity` | +15 to +30 |
-| Soft / dreamy | `clarity` | -10 to -20 |
-| Fix white balance | `whiteBalance` | set to "auto" or "daylight" etc. |
-
-**Always carry forward all previous settings** when re-running. Only change the parameters the user requested.
-
----
-
-### Step 6 – Re-Process with Updated Settings
-
-Build the updated settings JSON and re-run:
-
-```bash
-python tools/raw_to_jpeg.py \
-  --input "<source_path>" \
-  --settings '{"exposure": 0.7, "vibrance": 25, "sharpness": 40}'
-```
-
-The new JPEGs overwrite the previous ones in `<source_path>/Processed/` (same filenames, updated content).
-
----
-
-### Step 7 – Iterate Until Satisfied
-
-Repeat Steps 3–6 until the user confirms they are happy. Then:
-
-1. Confirm final output location: `<source_path>/Processed/`
-2. Offer to copy/move files to a permanent destination if desired
-3. Summarise the final Camera Raw settings used (so user can replicate in Bridge/Lightroom)
-
----
-
-## Camera Raw Settings Reference
-
+### Step 4 – Fix with a plan file and re-run
+Write `plan.json` with per-image overrides and re-run with `--plan plan.json`:
 ```json
 {
-  "jpegQuality":          10,
-  "colorSpace":           "sRGB",
-  "resolution":           300,
-  "size":                 "large",
-  "whiteBalance":         "asShot",
-  "temperature":          null,
-  "tint":                 null,
-  "exposure":             0.0,
-  "contrast":             0,
-  "highlights":           0,
-  "shadows":              5,
-  "whites":               0,
-  "blacks":               0,
-  "clarity":              0,
-  "saturation":           0,
-  "vibrance":             0,
-  "sharpness":            25,
-  "luminanceSmoothing":   0,
-  "colorNoiseReduction":  25
+  "_U4A0059": {
+    "exposure": 1.25,
+    "crop":    [0.2282, 0.3888, 0.6822, 0.5382],
+    "subject": [0.11, 0.11, 0.34, 0.84],
+    "face":    [0.3863, 0.2253]
+  }
 }
 ```
+- `exposure` — EV (auto ≈ camera preview median × 1.12). Raise if it looks dark.
+- `crop` — x, y, w, h as fractions of the full 6000×4000 frame (applied before developing).
+- `subject` — x, y, w, h box around the animal, fractions of the *cropped* frame (seeds GrabCut).
+- `face` — face centre, fractions of the cropped frame (enables face clarity + eye lift).
+
+### Step 5 – Translate feedback
+
+| User says | Change |
+|-----------|--------|
+| Too dark / underexposed / brighter | `exposure` +0.25 to +0.75 |
+| Too bright | `exposure` −0.25 to −0.5 |
+| Move the animal / more space where it looks | `crop`: put the face on a third line, space in gaze direction |
+| Crop like my screenshot | template-match the screenshot against the developed frame → `crop` |
+| Cut out distraction at an edge | tighten `crop` |
+| Face not sharp / eyes dull | set or correct `face` |
+| Background too busy / bright | check `subject` box covers only the animal (finish burns/desaturates the rest) |
+| Bigger print | `--factor` (3 = default and practical ceiling; 4 only for a specific large print) |
+
+Always carry forward previous settings; only change what was asked.
+
+### Step 6 – Deliver
+Report: files processed, output folder, print size of each master (px and inches at 300 ppi),
+any failures. The final print file is the one in `Processed/signed/`.
 
 ---
 
-## Error Handling
+## Outputs (default `<source>/Processed/`)
+
+| File | Spec |
+|------|------|
+| `<name>_expert.jpg` | finished image — JPEG q97 4:4:4, sRGB, 300 ppi, Artist/Copyright EXIF |
+| `<name>_expert_print3x.jpg` | print master, 3× — JPEG q100 4:4:4, sRGB, 300 ppi |
+| `signed/<name>_expert*.jpg` | signed copies (signature 5.25 % of long edge, 1 % inset, 85 % opacity, auto black/white) |
+| `.tmp/raw_processing.log` | per-file log |
+| `.tmp/raw_processing_results.json` | machine-readable summary |
+
+Originals are never modified.
+
+---
+
+## The house look (stage 1) — learned from the photographer's own ACR edit
+
+ACR 18.3.2, PV 15.4, Adobe Color, WB As Shot, Contrast +34, Highlights −87, Shadows +76,
+Whites +9, Blacks −34, Texture 0, Clarity +24, Dehaze +23, Vibrance +15, Saturation 0,
+linear curve, lens profile + CA, AI Denoise, Sharpen 40 / r1.0 / detail 25,
+post-crop vignette −37 (highlight priority). Exposure was +1.15 on the reference; the tool
+picks it per image. `calib.json` holds slider gains fitted against the reference export plus a
+residual per-channel look LUT. Denoise = light non-local means on detail, Gaussian on smooth
+areas, fine dither to prevent banding.
+
+## Expert finish (stage 2)
+GrabCut subject mask (feathered) → background: −2…8 % saturation on red/orange earth, 3–11 %
+burn with graduated top band, lighter pool around the subject → subject: luminance-ratio dodge
+(darks excluded) → local WB warms shaded fur → face clarity 0.22 + fine sharpen 0.15, eye lift
+0.20 → dark markings neutralised (blue skylight removed).
+
+## Print upscale (stage 3)
+Largest useful size = **3×** (beyond ~3× interpolation only softens). Defringe purple/cyan edges →
+Lanczos in 2× steps → unsharp mask r2.0 (scaled with factor) / 90 % / t2 on luminance only,
+through a detail mask (smooth areas untouched). Signature is applied after upscaling.
+
+---
+
+## Error handling
 
 | Error | Action |
 |-------|--------|
-| Photoshop not found | Tell user to install Photoshop or pass `--photoshop <path>` |
-| No RAW files found | List supported extensions; ask user to confirm folder |
-| Zip extraction fails | Check zip integrity; ask user to re-upload |
-| Individual file fails | Log it, continue processing remaining files; report at end |
-| Photoshop dialog appears | Ensure `app.displayDialogs = DialogModes.NO` is set in JSX |
-| Timeout | Increase `--timeout` (default 300s). Large files take longer. |
+| No RAW files | List supported extensions, ask again |
+| Signature PNGs not found | Pipeline continues unsigned; ask for `--sig-dir` |
+| GrabCut picks the wrong object | Give a tighter `subject` box in the plan |
+| One file fails | Logged; others continue; exit code 4 |
+| Very large print master won't transfer as an image | Deliver it inside a zip |
 
----
-
-## Output
-
-- **Location:** `<input_folder>/Processed/<filename>.jpg`
-- **Format:** JPEG, JPEG quality 10/12 (adjustable), sRGB, 8-bit
-- **Naming:** Same as source RAW file, extension changed to `.jpg`
-- **Metadata:** Colour profile embedded
-
----
-
-## Notes
-
-- Adobe Photoshop's Camera Raw is **the same engine** used by Adobe Bridge. Results are identical to processing via Bridge's Output workspace.
-- Settings are **non-destructive** to originals — RAW files are never modified.
-- Each iteration **overwrites** `<input_folder>/Processed/` with updated JPEGs.
-- `.tmp/raw_processing.log` contains per-file processing logs for debugging.
-- `.tmp/raw_processing_results.json` contains the machine-readable summary of the last run.
+## Notes / lessons
+- Review before hand-over is mandatory — a first pass at +0.5 EV was rejected as "very underexposed".
+- Lifting shadows amplified a blue cast in dark rosettes; fixed by excluding darks from the lift and
+  neutralising markings, not by global WB.
+- Lossy JPEG intermediates caused blocking in the 3× master; keep everything PNG until the end.
+- Legacy v1 tool (rawpy defaults / Photoshop JSX) is kept in `tools/legacy/` for reference only.

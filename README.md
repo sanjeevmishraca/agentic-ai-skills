@@ -10,16 +10,17 @@ A collection of Claude Code skills built on the **WAT framework** (Workflows, Ag
 
 ## Skills
 
-### `/raw-to-jpeg` — RAW Image Processor
+### `/raw-to-jpeg` — RAW → finished, print-ready JPEG · **v3.0.0 "final" (2026-11-20 10:22 PST)**
 
-Batch-converts RAW camera files to high-quality JPEGs using the **LibRaw engine** (the same core as Adobe Camera Raw / Adobe Bridge). Fully headless — no Adobe software required.
+Turns wildlife RAW files into finished, signed, print-ready images in one command. Fully headless (LibRaw via rawpy + OpenCV) — no Adobe software required.
 
-**Features:**
-- **Auto-brightness** — per-image histogram analysis targets correct exposure for every shot; no fixed EV setting
-- **Smart auto-crop** — detects subjects partially clipped at frame edges (animals, people) and crops them out cleanly
-- **Vivid defaults** — Contrast +30, Clarity +25, Vibrance +30, Saturation +15, Sharpness 55
-- **Iterative feedback loop** — tell Claude "make it brighter" or "warmer tones" and it re-processes with updated settings
-- **Supported formats** — CR2, CR3, NEF, NRW, ARW, RAF, DNG, ORF, RW2, PEF, SRW, 3FR, MEF, MRW, RWL, X3F, ERF
+**Pipeline:**
+1. **Develop** — a house look learned from the photographer's own Camera Raw edit (Contrast +34, Highlights −87, Shadows +76, Whites +9, Blacks −34, Clarity +24, Dehaze +23, Vibrance +15, vignette −37), calibrated against the real export. Auto exposure is set relative to the camera's own preview. Optional crop.
+2. **Expert finish** — subject mask; calmer background, subject dodge, warm shaded fur, crisp face and eyes, clean black markings.
+3. **Print upscale** — 3× master (largest useful size), with defringing and detail-masked luminance sharpening, at 300 ppi.
+4. **Sign** — signature bottom-right on copies in `signed/`.
+
+**Supported formats** — CR2, CR3, NEF, NRW, ARW, RAF, DNG, ORF, RW2, PEF, SRW, 3FR, MEF, MRW, RWL, X3F, ERF
 
 ---
 
@@ -54,19 +55,30 @@ Once the project is open in Claude Code, run:
 /raw-to-jpeg
 ```
 
-Claude will ask for the folder containing your RAW files, process them, and save JPEGs to a `Processed/` subfolder next to your originals.
+Claude will ask for the folder containing your RAW files. It runs the pipeline, **reviews every image (full frame + 100 % crops) before handing it over**, and saves the results to `Processed/` next to your originals:
+
+| File | What it is |
+|------|-----------|
+| `<name>_expert.jpg` | finished image (sRGB, 300 ppi) |
+| `<name>_expert_print3x.jpg` | 3× print master |
+| `signed/…` | signed copies — the final files to print |
+
+Direct use:
+```bash
+python tools/raw_to_jpeg.py --input <folder> --sig-dir <signature-folder> [--plan plan.json]
+```
+`plan.json` holds per-image `exposure`, `crop`, `subject` and `face` (see `workflows/raw_to_jpeg.md`). Signature PNGs (`SM_signature_black.png` / `SM_signature_white.png`) are kept locally, never committed.
 
 **Example feedback you can give:**
 | You say | What changes |
 |---------|-------------|
-| "Make it brighter" | Increases exposure |
-| "Warmer tones" | Raises white balance temperature |
-| "More vibrant" | Increases vibrance/saturation |
-| "Less noise" | Increases noise reduction |
-| "Sharper" | Increases sharpness |
-| "More contrast" | Increases contrast |
+| "Make it brighter" | Raises exposure |
+| "Move the animal left / more space where it looks" | Re-crops on a third line |
+| "Crop like this screenshot" | Matches the screenshot crop |
+| "Eyes aren't sharp" | Sets the face point for clarity and eye lift |
+| "Bigger print" | Changes the upscale factor |
 
-Claude keeps refining until you're happy, then summarises the final settings so you can replicate them in Lightroom or Bridge.
+Claude keeps refining until you're happy.
 
 ---
 
@@ -78,7 +90,7 @@ This project follows the **WAT framework**:
 |-------|------|-------|
 | **Workflow** | Step-by-step SOP | `workflows/raw_to_jpeg.md` |
 | **Agent** | Claude Code (you're talking to it) | `.claude/commands/raw-to-jpeg.md` |
-| **Tool** | Deterministic Python execution | `tools/raw_to_jpeg.py` |
+| **Tool** | Deterministic Python execution | `tools/raw_to_jpeg.py` → `photo_develop.py`, `expert_finish.py`, `upscale_print.py`, `sign_image.py` |
 
 The AI handles reasoning and user interaction; the Python script handles all pixel manipulation. This separation keeps results consistent and debuggable.
 
@@ -89,13 +101,19 @@ The AI handles reasoning and user interaction; the Python script handles all pix
 ```
 .
 ├── tools/
-│   ├── raw_to_jpeg.py        # RAW→JPEG processor (rawpy / LibRaw)
-│   └── process_raw.jsx       # Legacy Photoshop ExtendScript (superseded)
+│   ├── raw_to_jpeg.py        # v3 pipeline orchestrator
+│   ├── photo_develop.py      # stage 1: house-look RAW development
+│   ├── calib.json            # calibrated gains + look LUT
+│   ├── expert_finish.py      # stage 2: subject-aware finishing
+│   ├── upscale_print.py      # stage 3: 3x print master
+│   ├── sign_image.py         # stage 4: signature
+│   └── legacy/               # v1 rawpy tool + Photoshop JSX (superseded)
 ├── workflows/
 │   └── raw_to_jpeg.md        # Full SOP: inputs, steps, error handling
 ├── .claude/
 │   └── commands/
 │       └── raw-to-jpeg.md    # Claude Code slash command definition
+├── CHANGELOG.md              # versions (raw-to-jpeg 3.0.0 final, 2026-11-20)
 ├── CLAUDE.md                 # WAT framework agent instructions
 ├── requirements.txt          # Python dependencies
 └── .gitignore

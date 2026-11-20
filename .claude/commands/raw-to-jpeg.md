@@ -1,45 +1,25 @@
-Follow the workflow defined in `workflows/raw_to_jpeg.md` to process RAW camera images into JPEG files using Adobe Photoshop's Camera Raw engine (the same engine as Adobe Bridge).
+Follow `workflows/raw_to_jpeg.md` (v3.0.0 "final", 2026-11-20 10:22 PST) to turn RAW files into finished, print-ready, signed JPEGs.
 
-## Your responsibilities as the agent:
+## Your responsibilities as the agent
 
-1. **Collect input** — Ask the user to either:
-   - Share the **full folder path** where their RAW images are stored, or
-   - **Drop a .zip file** containing the RAW images
+1. **Collect input** — ask for the RAW folder path (or a .zip). Ask where the signature PNGs are if `RTJ_SIGNATURE_DIR` is not set.
 
-2. **Run initial processing** — Once you have the source path, execute:
+2. **First pass** —
    ```
-   python tools/raw_to_jpeg.py --input "<path>"
+   python tools/raw_to_jpeg.py --input "<path>" --sig-dir "<signature folder>"
    ```
-   Output defaults to a `Processed/` subfolder inside the input folder (e.g. `<path>/Processed`). Pass `--output <folder>` to override.
+   Pipeline: develop (house look) → expert finish → 3× print upscale → sign. Outputs go to `<path>/Processed/` (`<name>_expert.jpg`, `<name>_expert_print3x.jpg`, and `signed/` copies).
 
-   The tool applies user's preferred style automatically:
-   - **Auto-brightness ON**: per-image histogram analysis (P98 highlight protection + P50 midtone target) — no fixed exposure, each image gets the right level
-   - **Auto-crop ON**: detects subjects clipped at edges (e.g. partially visible animals) and crops them out using corner-based background estimation
-   - Contrast: +30, Clarity: +25 (punch), Vibrance: +30, Saturation: +15 (vivid), Sharpness: 55
+3. **Review every image before handing it over (mandatory)** — look at the full frame and 100 % crops (face/eyes, body, background, print master). Check exposure (bright, never underexposed), composition (animal on a third line, space in the gaze/motion direction), colour (golden coat, no blue cast in shade or markings), and detail (no smearing, blotches, halos, fringes). Fix anything you are not satisfied with *before* reporting.
 
-3. **Report results** — After processing completes, tell the user:
-   - How many images were processed
-   - The full path to the output folder (`<input>/Processed/` by default)
-   - Any files that failed and why
+4. **Fix with a plan file** — write `plan.json` with per-image `exposure`, `crop`, `subject`, `face` (see the workflow) and re-run with `--plan plan.json`.
 
-4. **Gather feedback** — Ask the user if they are satisfied with the results. If not, ask what changes they want. Accept natural language like:
-   - "Make it brighter" → increase `exposure`
-   - "Warmer tones" → increase `temperature` (set `whiteBalance` to `custom`)
-   - "More vibrant" → increase `vibrance`
-   - "Less noise" → increase `colorNoiseReduction`
-   - "Sharper" → increase `sharpness`
-   Refer to the feedback-to-settings mapping table in `workflows/raw_to_jpeg.md`.
+5. **Report** — files processed, output folder, print size of each master (px and inches at 300 ppi), failures. The final print file is the one in `Processed/signed/`.
 
-5. **Re-process** — Apply changes on top of the previous settings and re-run the tool. The output folder is overwritten each run. Always carry forward all previously applied settings.
+6. **Iterate on feedback** using the feedback table in the workflow; carry forward all previous settings.
 
-6. **Iterate** — Keep refining until the user confirms they are happy with the output.
-
-7. **Final summary** — When done, tell the user:
-   - The final path to their processed JPEGs (the output folder used)
-   - A summary of the final Camera Raw settings used (so they can replicate in Bridge or Lightroom)
-
-## Important notes:
-- Never modify the original RAW files
-- Keep a running copy of the current settings dict in your working context across iterations
-- If Photoshop is not found, tell the user to install Adobe Photoshop or provide the path via `--photoshop`
-- Log files are at `.tmp/raw_processing.log` — read them if anything fails
+## Rules
+- Never modify the original RAW files.
+- Keep intermediates lossless (the tool does this in `.tmp/`).
+- Print masters larger than 8000 px may need to be delivered in a zip.
+- Logs: `.tmp/raw_processing.log`; results: `.tmp/raw_processing_results.json`.
