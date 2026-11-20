@@ -24,6 +24,10 @@ Turns wildlife RAW files into finished, signed, print-ready images in one comman
 
 ---
 
+**New here? Follow the step-by-step [How to Run guide](HOW_TO_RUN.md).**
+
+---
+
 ## Prerequisites
 
 - **Python 3.8+**
@@ -113,6 +117,7 @@ The AI handles reasoning and user interaction; the Python script handles all pix
 ├── .claude/
 │   └── commands/
 │       └── raw-to-jpeg.md    # Claude Code slash command definition
+├── HOW_TO_RUN.md              # step-by-step guide for anyone
 ├── CHANGELOG.md              # versions (raw-to-jpeg 3.0.0 final, 2026-11-20)
 ├── CLAUDE.md                 # WAT framework agent instructions
 ├── requirements.txt          # Python dependencies
