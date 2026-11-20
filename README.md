@@ -8,6 +8,14 @@ A collection of Claude Code skills built on the **WAT framework** (Workflows, Ag
 
 ---
 
+## Apps
+
+### Vanyajeev (वन्यजीव) — wildlife RAW & JPEG developer for Windows
+
+A desktop app built on the raw-to-jpeg pipeline: before/after view, exposure, crop with thirds grid, subject and face tools, print masters and signatures. See [vanyajeev/README.md](vanyajeev/README.md).
+
+---
+
 ## Skills
 
 ### `/raw-to-jpeg` — RAW → finished, print-ready JPEG · **v3.0.0 "final" (2026-11-20 10:22 PST)**
