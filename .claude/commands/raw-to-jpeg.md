@@ -6,7 +6,7 @@ Folder layout: `<shoot>/Best Images` (picked RAW + JPG) and `<shoot>/Processed` 
 
 1. **Collect input** — ask for the RAW folder path (or a .zip). Ask where the signature PNGs are if `RTJ_SIGNATURE_DIR` is not set.
 
-2. **Pick best shots** — `python tools/best_shots.py --input "<shoot>"` → `<shoot>/Best Images`. Look at `.tmp/best_shots_review.jpg` and delete picks with no animal or an animal hidden/cut off.
+2. **Pick best shots, story first** — `python tools/best_shots.py --input "<shoot>"`, then look at EVERY contact sheet in `.tmp/best_shots/` and choose: mother & young, animals doing something (climbing, drinking, feeding, interacting), groups/herds, motion, animals looking at the camera, rare animals (black leopard), dramatic side/rim light. Drop frames with no animal or an animal hidden/cut off. Copy with `--keep <numbers>` → `<shoot>/Best Images`.
 
 3. **Process Best Images** —
    ```

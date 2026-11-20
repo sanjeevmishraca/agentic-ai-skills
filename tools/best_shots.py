@@ -1,20 +1,34 @@
 #!/usr/bin/env python3
 """
-best_shots.py - stage 0 of raw_to_jpeg: pick ONE best frame per sighting and copy it to <shoot>/Best Images.
+best_shots.py - stage 0 of raw_to_jpeg: find the best shots of a shoot and copy them to <shoot>/Best Images.
 
-Rules (approved on the 2026 Laikipia shoot):
-  * Duplicates = true copies only ("<name> copy", same capture time) - never picked.
-  * Sighting = consecutive frames with gaps <= 3 minutes (sorted by capture time, so the camera
-    counter rolling over 9999 -> 0001 doesn't split or merge sightings).
-  * Hard rejects: underexposed / near-black, clipped highlights (>5 %), ISO > 12800, soft
-    (< 60 % of the sighting's sharpest frame).
-  * Score the rest: sharpness 30 %, exposure 20 %, noise 10 %, rule of thirds 15 %,
-    lead room in the direction of motion 15 %, golden light by image WARMTH (not the clock) 10 %.
-  * Copy RAW + camera JPG of each pick (originals untouched) and write best_shots_log.csv.
-  * A contact sheet is written to .tmp/best_shots_review.jpg - the agent MUST look at it and drop
-    frames with no animal (tents, empty scenes) or an animal hidden/cut off before processing.
+STORY BEATS TECHNICAL PERFECTION (lesson from the 2026 Laikipia shoot, where a sharpness-driven
+one-per-sighting picker missed the photographer's favourite 13 frames):
+  Always keep: mother & young; animals DOING something (climbing, drinking, feeding, hunting,
+  interacting); groups / herds; animals in motion; one or more animals looking at the camera;
+  rare animals (e.g. black leopard); dramatic light (side / rim light, even against a cool sky).
 
-Usage: python tools/best_shots.py --input <shoot folder> [--out "<shoot>/Best Images"] [--gap 180]
+Pipeline
+  1. Duplicates = true copies only ("<name> copy") - ignored.
+  2. Sightings = gaps <= 3 min (sorted by capture time, so counter rollover 9999->0001 is safe).
+  3. MOMENTS inside a sighting = frames <= 20 s apart that still look alike (composition similarity);
+     a long sighting holds several moments (calf running, mother+calf, herd resting) and each one
+     gets a candidate.
+  4. Technical gate per moment (focus is compared ONLY within the moment's burst, never across a
+     sighting - whole-frame sharpness rewards textured grass and wrongly calls clean-background
+     frames "soft"): drop near-black, clipped (>5 %), ISO > 12800, and frames < 60 % of the burst's
+     sharpest; the best remaining frame is the moment's candidate.
+  5. Contact sheets of all candidates (numbered, grouped by sighting) go to .tmp/best_shots/.
+     The agent MUST look at every sheet and choose with the story rules above, plus: no animal /
+     animal hidden or cut off -> drop; near-duplicate moments -> keep the stronger one.
+  6. `--keep 3,7,12-15` copies the chosen candidates (RAW + camera JPG) to Best Images with a log.
+     `--auto` (unattended runs) keeps the technically best candidate of every moment that has an
+     animal-sized subject; review is still recommended.
+
+Usage
+  python tools/best_shots.py --input <shoot>                 # candidates + sheets (no copying)
+  python tools/best_shots.py --input <shoot> --keep 1,4,9-12 # copy chosen candidates
+  python tools/best_shots.py --input <shoot> --auto          # copy all moment candidates
 """
 import argparse, csv, datetime as dt, io, json, os, re, shutil, sys
 from pathlib import Path
@@ -63,6 +77,7 @@ def metrics(path: Path):
     ys, xs = np.mgrid[0:gy, 0:gx]
     d['cx'] = float(((xs + 0.5) * w).sum() / w.sum() / gx); d['cy'] = float(((ys + 0.5) * w).sum() / w.sum() / gy)
     small = cv2.resize(g, (48, 32)).astype(np.float32)
+    d['f'] = (small - small.mean()) / (small.std() + 1e-6)
     d['thumb'] = im.resize((300, int(im.height * 300 / W)))
     return d
 
@@ -72,60 +87,77 @@ def thirds(cx, cy):
     return max(0.0, 1 - dmin / 0.25)
 
 
-def pick(frames, gap):
+def pick(frames, gap, moment_gap=20.0, moment_sim=0.55):
+    """Returns (candidates, nsightings, nmoments). One candidate per distinct moment."""
     for m in frames:
         try:
             m['t'] = dt.datetime.strptime(m['dt'], '%Y:%m:%d %H:%M:%S').timestamp() + int(m['subsec'] or 0) / 100
         except Exception:
             m['t'] = os.path.getmtime(m['path'])
     frames.sort(key=lambda m: (m['t'], m['name']))
-    scenes = []
+    sim = lambda a, b: float((a['f'] * b['f']).mean())
+    sightings = []
     for m in frames:
-        if scenes and m['t'] - scenes[-1][-1]['t'] <= gap:
-            scenes[-1].append(m)
+        if sightings and m['t'] - sightings[-1][-1]['t'] <= gap:
+            sightings[-1].append(m)
         else:
-            scenes.append([m])
-    picks, rejected = [], []
-    for i, s in enumerate(scenes, 1):
-        smax = max(m['sharp_max'] for m in s)
-        ok = []
-        for m in s:
-            why = []
-            if m['meanL'] < 45 or m['p98'] < 110: why.append('underexposed')
-            if m['hi_clip'] > 0.05: why.append('highlights clipped')
-            if (m['iso'] or 0) > 12800: why.append('ISO too high')
-            if m['sharp_max'] < 0.6 * smax: why.append('soft')
-            m['why'] = why
-            if not why: ok.append(m)
-        if not ok:
-            rejected.append((i, len(s), s[0]['name'], sorted({w for m in s for w in m['why']}))); continue
-        cx = np.array([m['cx'] for m in s]); n = len(s)
-        slope = np.polyfit(np.arange(n), cx, 1)[0] if n > 2 else 0
-        move = 'right' if slope * n > 0.08 else 'left' if slope * n < -0.08 else 'static'
-        nmin = min(m['noise'] for m in ok); smx = max(m['sharp_max'] for m in ok)
-        for m in ok:
-            ex = 1 - min(0.4, abs(m['meanL'] - 118) / 300) - (0.2 if m['hi_clip'] > 0.02 else 0) - (0.2 if m['lo_clip'] > 0.15 else 0)
-            lead = min(1, {'right': 1 - m['cx'], 'left': m['cx'], 'static': 0.5}[move] / 0.6)
-            gold = min(1.0, max(0.0, (m['warm'] - 1.05) / 0.25))
-            m['score'] = 0.30 * m['sharp_max'] / smx + 0.20 * ex + 0.10 * nmin / m['noise'] + 0.15 * thirds(m['cx'], m['cy']) + 0.15 * lead + 0.10 * gold
-            m.update(move=move, lead=lead, gold=gold)
-        b = max(ok, key=lambda m: m['score'])
-        b.update(scene=i, frames=n, usable=len(ok))
-        picks.append(b)
-    return picks, rejected, len(scenes)
+            sightings.append([m])
+    cands, nmom = [], 0
+    for si, s in enumerate(sightings, 1):
+        moments = [[s[0]]]
+        for m in s[1:]:
+            cur = moments[-1]
+            if m['t'] - cur[-1]['t'] <= moment_gap and max(sim(m, x) for x in cur[-3:]) >= moment_sim:
+                cur.append(m)
+            else:
+                moments.append([m])
+        nmom += len(moments)
+        for mi, mo in enumerate(moments, 1):
+            smax = max(x['sharp_max'] for x in mo)
+            ok = [x for x in mo if not (x['meanL'] < 45 or x['p98'] < 110) and x['hi_clip'] <= 0.05
+                  and (x['iso'] or 0) <= 12800 and x['sharp_max'] >= 0.6 * smax]
+            if not ok:
+                continue
+            nmax = max(y['noise'] for y in ok)
+            for x in ok:
+                x['score'] = 0.5 * x['sharp_max'] / smax + 0.3 * (1 - min(0.4, abs(x['meanL'] - 118) / 300)) + 0.2 * (1 - x['noise'] / nmax)
+            b = max(ok, key=lambda x: x['score'])
+            b.update(scene=si, moment=mi, frames=len(mo), usable=len(ok))
+            cands.append(b)
+    return cands, len(sightings), nmom
 
 
-def contact_sheet(picks, out):
-    cols, tw, th = 6, 300, 230
-    rows = (len(picks) + cols - 1) // cols
-    sheet = Image.new('RGB', (cols * tw, rows * th), (20, 18, 16))
+def contact_sheets(cands, folder, per_sheet=30):
     from PIL import ImageDraw
-    d = ImageDraw.Draw(sheet)
-    for k, m in enumerate(picks):
-        x, y = (k % cols) * tw, (k // cols) * th
-        sheet.paste(m['thumb'], (x, y))
-        d.text((x + 6, y + th - 26), f"{k + 1}. {Path(m['name']).stem}  s{m['scene']}", fill=(239, 232, 221))
-    sheet.save(out, quality=85)
+    folder.mkdir(parents=True, exist_ok=True)
+    for f in folder.glob('sheet_*.jpg'):
+        f.unlink()
+    cols, tw, th = 6, 300, 228
+    pages = []
+    for p in range(0, len(cands), per_sheet):
+        chunk = cands[p:p + per_sheet]
+        rows = (len(chunk) + cols - 1) // cols
+        sheet = Image.new('RGB', (cols * tw, rows * th), (20, 18, 16))
+        d = ImageDraw.Draw(sheet)
+        for k, m in enumerate(chunk):
+            x, y = (k % cols) * tw, (k // cols) * th
+            sheet.paste(m['thumb'], (x, y))
+            d.text((x + 6, y + th - 24), f"#{p + k + 1}  {Path(m['name']).stem}  s{m['scene']}.{m['moment']}", fill=(239, 232, 221))
+        out = folder / f'sheet_{len(pages) + 1:02d}.jpg'
+        sheet.save(out, quality=85)
+        pages.append(out)
+    return pages
+
+
+def parse_keep(spec, n):
+    out = set()
+    for part in spec.split(','):
+        part = part.strip()
+        if '-' in part:
+            a, b = part.split('-'); out.update(range(int(a), int(b) + 1))
+        elif part:
+            out.add(int(part))
+    return sorted(i for i in out if 1 <= i <= n)
 
 
 def main():
@@ -133,6 +165,8 @@ def main():
     ap.add_argument('--input', required=True)
     ap.add_argument('--out')
     ap.add_argument('--gap', type=float, default=180)
+    ap.add_argument('--keep', help='candidate numbers to copy, e.g. 1,4,9-12')
+    ap.add_argument('--auto', action='store_true', help='copy every moment candidate (unattended)')
     a = ap.parse_args()
     root = Path(a.input)
     out = Path(a.out) if a.out else root / 'Best Images'
@@ -155,25 +189,35 @@ def main():
             print(f'  analysed {len(frames)} frames')
     if not frames:
         sys.exit('no photos found')
-    picks, rejected, nscenes = pick(frames, a.gap)
+    cands, nsight, nmom = pick(frames, a.gap)
+    work = REPO / '.tmp' / 'best_shots'
+    work.mkdir(parents=True, exist_ok=True)
+    json.dump([dict(n=i + 1, name=m['name'], group=m['group'], scene=m['scene'], moment=m['moment'], frames=m['frames'],
+                    dt=m['dt'], iso=m['iso'], score=round(m['score'], 3)) for i, m in enumerate(cands)],
+              open(work / 'candidates.json', 'w'), indent=1)
+    pages = contact_sheets(cands, work)
+    print(f'{len(frames)} frames, {nsight} sightings, {nmom} moments -> {len(cands)} candidates')
+    print('contact sheets:', ', '.join(str(p) for p in pages))
+    if not (a.keep or a.auto):
+        print('NEXT: review the sheets with the story rules, then re-run with --keep <numbers>')
+        return
+    chosen = cands if a.auto else [cands[i - 1] for i in parse_keep(a.keep, len(cands))]
     out.mkdir(parents=True, exist_ok=True)
-    for m in picks:
+    for m in chosen:
         for f in m['group']:
             dst = out / Path(f).name
             if not dst.exists():
                 shutil.copy2(f, dst)
-    with open(out / 'best_shots_log.csv', 'w', newline='') as fh:
+    log = out / 'best_shots_log.csv'
+    new = not log.exists()
+    with open(log, 'a', newline='') as fh:
         w = csv.writer(fh)
-        w.writerow(['pick', 'sighting', 'frames_in_sighting', 'usable', 'captured', 'iso', 'motion', 'golden', 'score'])
-        for m in picks:
-            w.writerow([Path(m['name']).stem, m['scene'], m['frames'], m['usable'], m['dt'], m['iso'], m['move'],
-                        round(m['gold'], 2), round(m['score'], 3)])
-    (REPO / '.tmp').mkdir(exist_ok=True)
-    contact_sheet(picks, REPO / '.tmp' / 'best_shots_review.jpg')
-    print(f'{len(frames)} frames, {nscenes} sightings -> {len(picks)} best shots in {out}')
-    if rejected:
-        print('sightings with no usable frame:', rejected)
-    print('REVIEW: .tmp/best_shots_review.jpg - remove frames with no animal before processing')
+        if new:
+            w.writerow(['pick', 'sighting', 'moment', 'frames_in_moment', 'captured', 'iso', 'tech_score', 'how'])
+        for m in chosen:
+            w.writerow([Path(m['name']).stem, m['scene'], m['moment'], m['frames'], m['dt'], m['iso'], round(m['score'], 3),
+                        'auto' if a.auto else 'reviewed'])
+    print(f'copied {len(chosen)} best shots to {out}')
 
 
 if __name__ == '__main__':

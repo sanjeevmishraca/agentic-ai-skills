@@ -19,7 +19,7 @@ Full pipeline (each stage is its own tool in tools/, all intermediates lossless 
 
 Folder layout (default):
   <shoot folder>/              your originals (never modified)
-  <shoot folder>/Best Images/  stage 0 picks ONE best frame per sighting (RAW + camera JPG) - best_shots.py
+  <shoot folder>/Best Images/  stage 0 picks the best frame of each moment, story first (RAW + camera JPG) - best_shots.py
   <shoot folder>/Processed/    finished JPEGs of everything in Best Images (+ signed/)
   --skip-pick processes an existing Best Images folder (e.g. after you reviewed/edited the picks);
   --all processes every RAW in the shoot without picking.
@@ -51,8 +51,8 @@ sys.path.insert(0, str(HERE))
 import photo_develop, expert_finish, upscale_print, sign_image  # noqa: E402
 import best_shots  # noqa: E402
 
-VERSION = "3.1.0"
-RELEASED = "2026-11-20 12:40 PST"
+VERSION = "3.2.0"
+RELEASED = "2026-11-20 13:40 PST"
 RAW_EXTENSIONS = {'.cr2', '.cr3', '.nef', '.nrw', '.arw', '.raf', '.dng', '.orf', '.rw2',
                   '.pef', '.srw', '.3fr', '.mef', '.mrw', '.rwl', '.x3f', '.erf'}
 REPO = HERE.parent
@@ -137,7 +137,7 @@ def main():
     if Path(a.input).is_dir() and not a.all:
         if not a.skip_pick:
             print('stage 0: picking best shots ->', best)
-            sys.argv = ['best_shots.py', '--input', str(base), '--out', str(best)]
+            sys.argv = ['best_shots.py', '--input', str(base), '--out', str(best), '--auto']
             best_shots.main()
         raws = collect(best)
     else:

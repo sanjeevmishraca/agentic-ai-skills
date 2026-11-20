@@ -1,5 +1,13 @@
 # Changelog
 
+## raw-to-jpeg 3.2.0 — 2026-11-20 13:40 PST
+
+### Changed
+- best_shots.py picks per MOMENT (≤20 s, similar composition), not per sighting; focus compared only
+  within a burst; numbered contact sheets + `--keep` for a story-first visual review; `--auto` for
+  unattended runs. Story rules (mother & young, behaviour, herds, motion, eye contact, rare animals,
+  dramatic light) added to the workflow. Fixes all 13 misses on the 2026 Laikipia shoot.
+
 ## raw-to-jpeg 3.1.0 — 2026-11-20 12:40 PST
 
 ### Added
