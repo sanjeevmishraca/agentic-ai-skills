@@ -65,11 +65,28 @@ def subject_mask(rgb_u8, box):
     bgd, fgd = np.zeros((1, 65), np.float64), np.zeros((1, 65), np.float64)
     cv2.grabCut(cv2.cvtColor(small, cv2.COLOR_RGB2BGR), m, rect, bgd, fgd, 6, cv2.GC_INIT_WITH_RECT)
     fg = np.where((m == cv2.GC_FGD) | (m == cv2.GC_PR_FGD), 255, 0).astype(np.uint8)
+    # Texture guard: an animal always has texture (fur, skin, feathers); plain sky / haze does not.
+    # Without this, a wide auto box lets GrabCut swallow a slab of sky, which the finish then keeps
+    # brighter than the rest of the sky (hard-edged patch).
+    g = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY).astype(np.float32)
+    tex = cv2.GaussianBlur(np.abs(cv2.Laplacian(cv2.GaussianBlur(g, (0, 0), 1.0), cv2.CV_32F)), (0, 0), 4)
+    textured = (tex > max(2.0, np.percentile(tex, 25))).astype(np.uint8)
+    textured = cv2.dilate(textured, np.ones((9, 9), np.uint8))      # keep fur edges against smooth sky
+    fg = fg * textured
     fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     n, lab, stats, _ = cv2.connectedComponentsWithStats(fg)
     if n > 1:                                         # keep the largest blob = the animal
         i = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
         fg = np.where(lab == i, 255, 0).astype(np.uint8)
+    # Area guard: a subject filling > 45 % of the frame means the box was too loose; keep the core
+    # (strongest texture) instead of lifting half the picture.
+    if (fg > 0).mean() > 0.45:
+        core = (tex > np.percentile(tex[fg > 0], 50)).astype(np.uint8) * (fg > 0)
+        core = cv2.morphologyEx(core.astype(np.uint8) * 255, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+        n, lab, stats, _ = cv2.connectedComponentsWithStats(core)
+        if n > 1:
+            i = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+            fg = np.where(lab == i, 255, 0).astype(np.uint8)
     return cv2.resize(fg, (W, H), interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255
 
 
