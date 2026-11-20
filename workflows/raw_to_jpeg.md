@@ -1,6 +1,6 @@
 # Workflow: RAW → Finished, Print-Ready JPEG
 
-**Version 3.0.0 "final" — released 2026-11-20 10:22 PST** (see `CHANGELOG.md`)
+**Version 3.1.0 — 2026-11-20 12:40 PST** (3.0.0 "final" + Best Images / Processed layout; see `CHANGELOG.md`)
 
 ## Objective
 Turn wildlife RAW files (Canon CR3/CR2 and other LibRaw formats) into finished images in the
@@ -8,6 +8,14 @@ photographer's own house look, finished like a fine-art wildlife print, upscaled
 useful print size, and signed. Review every image before handing it over.
 
 ---
+
+## Folder layout
+
+```
+<shoot folder>/              originals (never modified)
+<shoot folder>/Best Images/  stage 0: one best frame per sighting (RAW + camera JPG) + best_shots_log.csv
+<shoot folder>/Processed/    finished JPEGs of everything in Best Images, signed copies in Processed/signed/
+```
 
 ## Required Inputs
 
@@ -23,7 +31,8 @@ useful print size, and signed. Review every image before handing it over.
 
 | Stage | Tool | What it does |
 |-------|------|--------------|
-| orchestrator | `tools/raw_to_jpeg.py` | Runs stages 1–4 per RAW, writes logs/results |
+| orchestrator | `tools/raw_to_jpeg.py` | Runs stage 0, then stages 1–4 per RAW in Best Images, writes logs/results |
+| 0 Pick | `tools/best_shots.py` | One best frame per sighting → `Best Images` (rules below) |
 | 1 Develop | `tools/photo_develop.py` + `tools/calib.json` | House look (ACR emulation), auto exposure, optional crop |
 | 2 Finish | `tools/expert_finish.py` | Subject mask + local expert edits |
 | 3 Upscale | `tools/upscale_print.py` | 3× print master with defringe + masked luminance sharpening |
@@ -38,11 +47,24 @@ All intermediates are lossless PNG (in `.tmp/`); only final outputs are JPEG.
 ### Step 1 – Collect input
 Ask for the RAW folder path (or a zip). Confirm it exists and contains RAW files.
 
-### Step 2 – First pass (automatic)
+### Step 2 – Pick the best shots
 ```bash
-python tools/raw_to_jpeg.py --input "<source>" --sig-dir "<signature folder>"
+python tools/best_shots.py --input "<shoot folder>"
 ```
-Automatic exposure, automatic subject box (saliency), no crop, no face work.
+Copies one best frame per sighting (RAW + camera JPG) into `<shoot folder>/Best Images` with
+`best_shots_log.csv`. Rules: duplicates = true copies only; a sighting ends after a >3 min gap
+(sorted by capture time, so counter rollover 9999→0001 is handled); hard rejects for
+underexposed/near-black, clipped highlights, ISO > 12800, soft frames; then score sharpness,
+exposure, noise, rule of thirds, lead room in the direction of motion, golden light by warmth.
+**Look at `.tmp/best_shots_review.jpg`** and delete any pick with no animal (tents, empty
+scenes) or an animal hidden/cut off from `Best Images` before processing.
+
+### Step 2b – Process everything in Best Images
+```bash
+python tools/raw_to_jpeg.py --input "<shoot folder>" --skip-pick --sig-dir "<signature folder>"
+```
+(Without `--skip-pick` the tool runs Step 2 itself first; `--all` processes every RAW, no picking.)
+Automatic exposure, automatic subject box (saliency), no crop, no face work → `<shoot folder>/Processed`.
 
 ### Step 3 – Review every image yourself before handing over (mandatory)
 Open each `<name>_expert.jpg` full frame **and** 100 % crops (face/eyes, body, background).

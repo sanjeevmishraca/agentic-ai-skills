@@ -1,8 +1,8 @@
 # How to Run raw-to-jpeg v3
 
-raw-to-jpeg 3.0.0 "final" · guide updated 2026-11-20
+raw-to-jpeg 3.1.0 · guide updated 2026-11-20
 
-Turns a folder of RAW photos into finished, print-ready JPEGs with one command. Originals are never changed.
+Picks the best shot of every sighting in a shoot folder and turns them into finished, print-ready JPEGs with one command. Originals are never changed.
 
 ## Prerequisites (once per computer)
 
@@ -22,11 +22,12 @@ cd C:\raw-to-jpeg
 python tools/raw_to_jpeg.py --input "D:\Photos\Kenya2026"
 ```
 
-Replace the path with your folder of RAW files. Results land in `D:\Photos\Kenya2026\Processed\`:
+Replace the path with your shoot folder. Two subfolders appear inside it:
 
-- `<name>_expert.jpg` — the finished image
-- `<name>_expert_print3x.jpg` — 3× print master for large prints
-- `signed\` — signed copies, if you set up a signature ([Appendix A](#appendix-a--add-your-signature))
+- `Best Images\` — the best shot of each sighting (RAW + camera JPG) and `best_shots_log.csv`
+- `Processed\` — the finished photos: `<name>_expert.jpg`, the 3× print master `<name>_expert_print3x.jpg`, and `signed\` copies if you set up a signature ([Appendix A](#appendix-a--add-your-signature))
+
+Want to change the picks first? Run `python tools/best_shots.py --input "D:\Photos\Kenya2026"`, delete or add files in `Best Images`, then run the command above with `--skip-pick`.
 
 On Mac use `python3` and a path like `~/Pictures/Kenya2026`.
 
@@ -56,8 +57,10 @@ Add these to the end of the command.
 | `--no-sign` | Skip signing |
 | `--sig-dir "<folder>"` | Where your signature PNGs are |
 | `--plan plan.json` | Per-image settings ([Appendix C](#appendix-c--fine-tune-single-images-with-planjson)) |
+| `--skip-pick` | Process the existing `Best Images` folder as it is |
+| `--all` | Process every RAW in the shoot, no best-shot picking |
 
-Every RAW in the folder and its subfolders is processed; running again overwrites earlier results.
+By default only the best shots are processed; running again overwrites earlier results in `Processed`.
 
 ## Appendix C — Fine-tune single images with plan.json
 

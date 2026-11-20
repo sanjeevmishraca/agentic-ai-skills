@@ -55,7 +55,7 @@ def auto_subject_box(rgb_u8):
 def subject_mask(rgb_u8, box):
     """GrabCut subject mask (float 0..1, full size), computed at quarter resolution."""
     H, W = rgb_u8.shape[:2]
-    s = 0.25
+    s = min(0.25, 1000.0 / W)                        # ~1000 px working width: fast, and the mask is feathered anyway
     small = cv2.resize(rgb_u8, (int(W * s), int(H * s)), interpolation=cv2.INTER_AREA)
     h, w = small.shape[:2]
     bx, by, bw, bh = box
@@ -73,12 +73,22 @@ def subject_mask(rgb_u8, box):
     return cv2.resize(fg, (W, H), interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255
 
 
+def _soft_blur(a, sigma):
+    """Very wide Gaussian computed at reduced size (identical to the eye, ~50x faster on 24 MP)."""
+    H, W = a.shape[:2]
+    f = max(1, int(sigma // 12))
+    if f == 1:
+        return cv2.GaussianBlur(a, (0, 0), sigma)
+    small = cv2.resize(a, (max(1, W // f), max(1, H // f)), interpolation=cv2.INTER_AREA)
+    return cv2.resize(cv2.GaussianBlur(small, (0, 0), sigma / f), (W, H), interpolation=cv2.INTER_LINEAR)
+
+
 def expert_finish(y, m, face=None):
     """y: RGB float 0..1, m: subject mask 0..1, face: (x, y) in pixels or None."""
     H, W = y.shape[:2]
     k = W / REF_W
     mf = np.clip(cv2.GaussianBlur(m, (0, 0), 18 * k), 0, 1)              # feathered subject
-    halo = np.clip(cv2.GaussianBlur(m, (0, 0), 220 * k) * 1.6, 0, 1)     # soft light pool
+    halo = np.clip(_soft_blur(m, 220 * k) * 1.6, 0, 1)                   # soft light pool
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 
     # 1. Background: calmer earth tones, slightly darker, graduated top burn

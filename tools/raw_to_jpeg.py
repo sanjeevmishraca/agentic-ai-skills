@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 raw_to_jpeg.py - WAT Framework Tool - RAW -> finished, print-ready JPEG
-Version 3.0.0 "final" - 2026-11-20 10:22 PST
+Version 3.1.0 - 2026-11-20 12:40 PST (3.0.0 "final" + Best Images / Processed folder structure)
 
 Full pipeline (each stage is its own tool in tools/, all intermediates lossless PNG):
 
@@ -17,7 +17,14 @@ Full pipeline (each stage is its own tool in tools/, all intermediates lossless 
                luminance-only detail-masked USM (r2.0 scaled / 90% / t2); 300 ppi.
   4. SIGN      sign_image.py      signature bottom-right on copies in Processed/signed/.
 
-Outputs per RAW, in <output> (default <input>/Processed):
+Folder layout (default):
+  <shoot folder>/              your originals (never modified)
+  <shoot folder>/Best Images/  stage 0 picks ONE best frame per sighting (RAW + camera JPG) - best_shots.py
+  <shoot folder>/Processed/    finished JPEGs of everything in Best Images (+ signed/)
+  --skip-pick processes an existing Best Images folder (e.g. after you reviewed/edited the picks);
+  --all processes every RAW in the shoot without picking.
+
+Outputs per RAW, in <output> (default <shoot folder>/Processed):
   <name>_expert.jpg           finished image, JPEG q97 4:4:4, sRGB, 300 ppi
   <name>_expert_print3x.jpg   print master, JPEG q100 4:4:4, sRGB, 300 ppi
   signed/<same names>         signed copies (if signature PNGs are available)
@@ -42,9 +49,10 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import photo_develop, expert_finish, upscale_print, sign_image  # noqa: E402
+import best_shots  # noqa: E402
 
-VERSION = "3.0.0"
-RELEASED = "2026-11-20 10:22 PST"
+VERSION = "3.1.0"
+RELEASED = "2026-11-20 12:40 PST"
 RAW_EXTENSIONS = {'.cr2', '.cr3', '.nef', '.nrw', '.arw', '.raf', '.dng', '.orf', '.rw2',
                   '.pef', '.srw', '.3fr', '.mef', '.mrw', '.rwl', '.x3f', '.erf'}
 REPO = HERE.parent
@@ -61,7 +69,8 @@ def collect(inp):
         p = dest
     if p.is_file():
         return [p] if p.suffix.lower() in RAW_EXTENSIONS else []
-    return sorted(f for f in p.rglob('*') if f.suffix.lower() in RAW_EXTENSIONS and 'Processed' not in f.parts)
+    return sorted(f for f in p.rglob('*') if f.suffix.lower() in RAW_EXTENSIONS
+                  and not ({'Processed', 'Best Images', 'Dupe_Images'} & set(f.relative_to(p).parts[:-1])))
 
 
 def nums(v, n):
@@ -117,15 +126,25 @@ def main():
     ap.add_argument('--no-upscale', action='store_true')
     ap.add_argument('--no-sign', action='store_true')
     ap.add_argument('--sig-dir')
+    ap.add_argument('--skip-pick', action='store_true', help='process the existing <input>/Best Images folder')
+    ap.add_argument('--all', action='store_true', help='process every RAW, no best-shot picking')
     ap.add_argument('--version', action='version', version=f'raw_to_jpeg {VERSION} ({RELEASED})')
     a = ap.parse_args()
 
     TMP.mkdir(exist_ok=True)
-    raws = collect(a.input)
+    base = Path(a.input) if Path(a.input).is_dir() else Path(a.input).parent
+    best = base / 'Best Images'
+    if Path(a.input).is_dir() and not a.all:
+        if not a.skip_pick:
+            print('stage 0: picking best shots ->', best)
+            sys.argv = ['best_shots.py', '--input', str(base), '--out', str(best)]
+            best_shots.main()
+        raws = collect(best)
+    else:
+        raws = collect(a.input)
     if not raws:
         print('No RAW files found. Supported: ' + ', '.join(sorted(RAW_EXTENSIONS)))
         sys.exit(2)
-    base = Path(a.input) if Path(a.input).is_dir() else Path(a.input).parent
     out_dir = Path(a.output) if a.output else base / 'Processed'
     out_dir.mkdir(parents=True, exist_ok=True)
     plan = json.load(open(a.plan)) if a.plan else {}

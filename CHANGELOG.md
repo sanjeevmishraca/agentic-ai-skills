@@ -1,5 +1,15 @@
 # Changelog
 
+## raw-to-jpeg 3.1.0 — 2026-11-20 12:40 PST
+
+### Added
+- `tools/best_shots.py` (stage 0): one best frame per sighting → `<shoot>/Best Images` (RAW + camera JPG,
+  `best_shots_log.csv`, review contact sheet), using the approved Laikipia selection rules.
+- `--skip-pick` (process an existing Best Images folder) and `--all` (no picking).
+
+### Changed
+- Default layout: originals stay in the shoot folder; picks in `Best Images/`, finished JPEGs in `Processed/`.
+
 ## raw-to-jpeg 3.0.0 "final" — 2026-11-20 10:22 PST
 
 Rebuilt as a four-stage pipeline that reproduces the approved final of `_U4A0059`
