@@ -51,7 +51,7 @@ sys.path.insert(0, str(HERE))
 import photo_develop, expert_finish, upscale_print, sign_image  # noqa: E402
 import best_shots  # noqa: E402
 
-VERSION = "3.2.0"
+VERSION = "3.3.0"
 RELEASED = "2026-11-20 13:40 PST"
 RAW_EXTENSIONS = {'.cr2', '.cr3', '.nef', '.nrw', '.arw', '.raf', '.dng', '.orf', '.rw2',
                   '.pef', '.srw', '.3fr', '.mef', '.mrw', '.rwl', '.x3f', '.erf'}

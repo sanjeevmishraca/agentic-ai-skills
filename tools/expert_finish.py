@@ -119,6 +119,11 @@ def expert_finish(y, m, face=None):
     y = y * (1 - bgw * (0.03 + 0.08 * grad) * (1 - 0.6 * halo))[..., None]
 
     # 2. Subject dodge (luminance ratio -> hue/chroma preserved; darks excluded)
+    # The light pool around the subject is only for backgrounds DARKER than the animal; where the
+    # background is already brighter (rhino against pale grass/sky) it reads as a glow halo.
+    Lsub = float(np.sum(_luma(y) * mf) / max(np.sum(mf), 1e-6))
+    darker_bg = np.clip((Lsub - _luma(y)) / 0.15, 0, 1)
+    halo = halo * darker_bg
     lift = 0.22 * mf + 0.06 * halo * (1 - mf)
     Lo = np.maximum(_luma(y), 1e-4)
     keepdark = np.clip((Lo - 0.18) / 0.17, 0, 1)

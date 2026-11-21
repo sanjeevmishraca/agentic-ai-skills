@@ -52,7 +52,10 @@ def render_linear(path, half=False):
     y0, x0 = (h - ch) // 2, (w - cw) // 2
     return rgb[y0:y0 + ch, x0:x0 + cw]
 
-def edge_aware(a, frac, eps=0.25):
+EDGE_EPS = float(os.environ.get('RTJ_EDGE_EPS', '0.06'))   # was 0.25: halos along subject edges against bright backgrounds
+
+def edge_aware(a, frac, eps=None):
+    eps = EDGE_EPS if eps is None else eps
     h, w = a.shape[:2]
     r = max(2, int(frac * max(h, w)))
     return cv2.ximgproc.guidedFilter(a.astype(np.float32), a.astype(np.float32), r, eps)
@@ -112,6 +115,14 @@ def develop(lin, ev, g, st=STYLE, lut=None, fast=False):
         gray = luma(y)[..., None]
         k = 1 + vib * (1 - sat)[..., None] * 0.9
         y = np.clip(gray + (y - gray) * k, 0, 1)
+    # --- Keep neutral shadows neutral: in shade the camera WB leaves a faint blue in dark greys, which
+    # vibrance then amplifies (blue ears/eyes on grey rhinos). Pull blue-leaning, low-saturation darks to neutral.
+    Ly = luma(y)[..., None]
+    blue_excess = np.clip(y[..., 2:3] - (y[..., 0:1] + y[..., 1:2]) / 2, 0, None)
+    wdark = np.clip((0.55 - Ly) / 0.35, 0, 1)
+    mx, mn = y.max(2, keepdims=True), y.min(2, keepdims=True)
+    wlow = np.clip((0.65 - (mx - mn) / (mx + 1e-6)) / 0.25, 0, 1)
+    y = np.clip(y - np.concatenate([-0.35 * blue_excess, -0.35 * blue_excess, 0.7 * blue_excess], 2) * wdark * wlow, 0, 1)
     # --- Residual look LUT (learned from his export)
     if lut is not None:
         lut = np.asarray(lut, dtype=np.float32)
@@ -150,29 +161,51 @@ def finish(y, st=STYLE):
         u8 = np.clip(f + (f - b) * amt * 1.2, 0, 255).astype(np.uint8)
     return u8
 
-def preview_median(path):
-    """Median luma of the camera's embedded JPEG preview (what the camera metered)."""
+def preview_stats(path):
+    """(p50, p95) luma of the camera's embedded JPEG preview - what the camera metered and how bright
+    it let the highlights go."""
     import io
     with rawpy.imread(path) as raw:
         th = raw.extract_thumb()
     im = Image.open(io.BytesIO(th.data)).convert('L') if th.format == rawpy.ThumbFormat.JPEG else Image.fromarray(th.data).convert('L')
-    return float(np.median(np.asarray(im)))
+    a = np.asarray(im)
+    return float(np.median(a)), float(np.percentile(a, 95))
 
-def auto_ev(lin_small, g, lut, cam_p50=None):
-    """Pick exposure so the developed image is ~12% brighter (median) than the camera's own
-    rendering - matches his reference edit (67.7 -> 72.7 on a dark-shade frame; up to ~16%
-    on soft evening light). Falls back to the absolute reference target."""
-    target = cam_p50 * 1.12 if cam_p50 else TARGET['p50']
-    best, err = 0.0, 1e9
-    for ev in np.arange(-1.5, 3.01, 0.05):
+
+def preview_median(path):
+    return preview_stats(path)[0]
+
+
+def auto_ev(lin_small, g, lut, cam_p50=None, cam_p95=None):
+    """Exposure for the house look.
+
+    Median target: ~12% brighter than the camera's rendering (his reference edit), but NO extra
+    brightening for bright / high-key scenes (camera median >= 115), where it over-exposed sunlit
+    rhinos. Hard highlight guard: the brightest 5% may not exceed the camera's own p95 (+3 levels,
+    max 238) and clipped pixels stay under 0.3%. The guard wins over the median target - matching the
+    median alone ran bright, hazy scenes to +2 EV and blew them out (Laikipia _U4A8533, _U4A8603)."""
+    if cam_p50:
+        target = cam_p50 * (1.12 if cam_p50 < 100 else 1.12 - 0.12 * min(1.0, (cam_p50 - 100) / 15.0))
+    else:
+        target = TARGET['p50']
+    p95_cap = min(238.0, cam_p95 + 3.0) if cam_p95 else 238.0
+    best, err, best_ok = 0.0, 1e9, None
+    for ev in np.arange(-2.0, 3.01, 0.05):
         y = develop(lin_small, ev, g, lut=lut)
         L = luma(y) * 255
+        ok = np.percentile(L, 95) <= p95_cap and (L >= 250).mean() <= 0.003
         e = abs(np.median(L) - target)
-        if e < err:
+        if ok and e < err:
             best, err = ev, e
+        if ok:
+            best_ok = ev
+    if err == 1e9:                      # nothing satisfied the guard (very bright frame): darkest tried
+        best = -2.0
     return float(best)
 
+
 ARTIST = os.environ.get('RTJ_ARTIST', 'Sanjeev Mishra')
+
 
 def save(u8, out, src_exif_model='Canon EOS R3'):
     im = Image.fromarray(u8)
@@ -196,7 +229,8 @@ def develop_file(inp, out, exposure=None, crop=None, half=False):
         H, W = lin.shape[:2]
         lin = lin[int(fy * H):int((fy + fh) * H), int(fx * W):int((fx + fw) * W)]
     small = cv2.resize(lin, (lin.shape[1] // 8, lin.shape[0] // 8), interpolation=cv2.INTER_AREA)
-    ev = exposure if exposure is not None else auto_ev(small, g, lut, preview_median(inp))
+    p50, p95 = preview_stats(inp)
+    ev = exposure if exposure is not None else auto_ev(small, g, lut, p50, p95)
     save(finish(develop(lin, ev, g, lut=lut)), out)
     return ev
 
@@ -215,7 +249,8 @@ def main():
         H, W = lin.shape[:2]
         lin = lin[int(fy * H):int((fy + fh) * H), int(fx * W):int((fx + fw) * W)]
     small = cv2.resize(lin, (lin.shape[1] // 8, lin.shape[0] // 8), interpolation=cv2.INTER_AREA)
-    ev = a.exposure if a.exposure is not None else auto_ev(small, g, lut, preview_median(a.inp))
+    p50, p95 = preview_stats(a.inp)
+    ev = a.exposure if a.exposure is not None else auto_ev(small, g, lut, p50, p95)
     print(f'exposure EV {ev:+.2f}')
     y = develop(lin, ev, g, lut=lut)
     save(finish(y), a.out)

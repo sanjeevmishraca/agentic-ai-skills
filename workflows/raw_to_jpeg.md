@@ -64,6 +64,17 @@ and writes numbered contact sheets to `.tmp/best_shots/sheet_NN.jpg`.
 - rare animals (black / melanistic leopard)
 - dramatic light: side or rim light at golden hour, even when a blue sky makes the frame look cool
 Drop: no animal (tents, empty scenes), animal hidden or cut off, weaker near-duplicates of a kept moment.
+
+**Then judge every pick as a WALL PRINT** (matte, glossy, canvas, acrylic or glass) for a wildlife
+print business — a record shot is not enough. Reject:
+- subject too small / far, buried in vegetation, or face partly hidden, with nothing interesting happening
+- no face visible — backs or humps of grazing animals
+- the animal looking away when the rest of the frame is good (look for a frame with eye contact or a clear profile)
+- a weaker frame of a subject/scene already covered by a stronger pick (no redundancy)
+- distractions in frame — vehicle parts, people, bags, tripods: crop them out (`crop` in the plan) or reject
+- an animal camouflaged into a busy background — keep only if a tight crop + background blur
+  (`tools/separate_subject.py`) makes it separate cleanly
+Fix flaws a good frame can lose: grass across the face → `tools/retouch_blade.py`.
 Then copy the chosen numbers:
 ```bash
 python tools/best_shots.py --input "<shoot folder>" --keep 3,7,12-15
@@ -114,6 +125,7 @@ Write `plan.json` with per-image overrides and re-run with `--plan plan.json`:
 | User says | Change |
 |-----------|--------|
 | Too dark / underexposed / brighter | `exposure` +0.25 to +0.75 |
+| Over-exposed (sunlit rhinos, bright haze) | `exposure` −0.25 to −0.5; auto now never exceeds the camera's own highlight level |
 | Too bright | `exposure` −0.25 to −0.5 |
 | Move the animal / more space where it looks | `crop`: put the face on a third line, space in gaze direction |
 | Crop like my screenshot | template-match the screenshot against the developed frame → `crop` |

@@ -1,5 +1,22 @@
 # Changelog
 
+## raw-to-jpeg 3.3.0 — 2026-11-20 (print-business review of Laikipia)
+
+### Fixed
+- Auto exposure blew out bright / hazy / sunlit scenes (Laikipia _U4A8533 at +2.15 EV, _U4A8603,
+  sunlit rhinos): highlights are now capped at the camera's own p95 (max 238, <0.3 % clipped) and
+  high-key scenes get no extra brightening. Low-key scenes unchanged (_U4A0059 approved result kept).
+- Glow halos along subject edges against bright backgrounds: tighter edge-aware tone mapping
+  (eps 0.25 -> 0.06) and the finish's light pool now fades where the background is brighter than
+  the animal (Laikipia _U4A8380 rhinos).
+- Blue shadows on grey animals (shade WB + vibrance): blue-leaning darks are pulled to neutral.
+
+### Added
+- Print-worthy selection rules in the workflow (wall-print standard, no hidden faces, no backs,
+  no look-aways, no redundancy, crop distractions, separate camouflaged subjects).
+- tools/retouch_blade.py — texture-preserving removal of a grass blade across a face.
+- tools/separate_subject.py — lens-like, distance-graded background blur behind a masked subject.
+
 ## raw-to-jpeg 3.2.0 — 2026-11-20 13:40 PST
 
 ### Changed
