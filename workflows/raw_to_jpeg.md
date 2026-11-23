@@ -162,6 +162,31 @@ photographer actually looks at. (Lesson 2026-11-23: rejected 8533/8603 were stil
 
 ---
 
+
+## Processing philosophy (from the photographer's per-photo reviews — apply to EVERY image)
+These are generic rules, not notes about one photo. Check each one before an image is approved.
+1. **Eyes tack sharp, always.** Run `tools/eye_sharpen.py` on every image with the eye centres
+   (`--eye x,y,r`); check at 200 % that the eyes look natural — no bright specks, magenta
+   fringes or grey/teal irises (`--despeck`, `--restore`). A soft eye means find another frame.
+2. **Lead room.** Generous space in the direction the animal looks or moves; never park the face
+   near the edge it faces.
+3. **Never cut the subject.** Full tail, horns, ears, feet. If the camera frame already cuts a key
+   part (e.g. a horn out of frame) the image fails — look for a frame of the same moment where it is
+   whole. Any other animal cut by the frame edge (half a calf, a face at the edge) must be cropped
+   out entirely; if it can't be cropped out without cutting the subject, drop the image.
+4. **No dead space.** Trim empty sky/ground; start the crop right at the tail; show more face on
+   portraits. Crop foreground down to the meaningful edge (just to the mud, just to the water line).
+5. **Background.** Good bokeh sells; more background blur is better (`tools/separate_subject.py`).
+   No glow halos around the subject — the finish now feathers its mask inside the edge.
+6. **Exposure for print.** Default darker than a screen look: real blacks, mid-tones <= 128,
+   highlights rolled off on sunlit rhinos / eland / pale grass (`tools/print_tone.py`, built into
+   raw_to_jpeg). Never deliver a white, milky sunlit scene.
+7. **Colour.** Warm tones for leopards and golden light (`"warm": 0.04-0.06`); no teal/cyan cast on
+   white fur (decool is now part of the finish).
+8. **Look for processing damage** on key features (horns, eyes, whiskers) by comparing against the
+   camera JPEG at 100 %.
+9. **Prefer frames with eyes open and looking at the camera.** If none exists in the sequence, say so.
+
 ## Outputs (default `<source>/Processed/<YYYY-MM-DD> final/`)
 
 | File | Spec |

@@ -1,5 +1,20 @@
 # Changelog
 
+## raw-to-jpeg 3.5.0 — 2026-11-23 (photographer's processing philosophy)
+
+### Added
+- tools/print_tone.py — print tone stage in raw_to_jpeg: black anchor, mid-tones <= 128,
+  highlight shoulder for sunlit animals, optional warmth (`"warm"` in the plan), `decool()` for
+  teal casts on white fur. Fixes the repeatedly flagged over-exposed rhinos / eland (8387, 8397,
+  8473, 9125, 8612).
+- tools/eye_sharpen.py — tack-sharp eyes with halo clamping, speck clean and iris tint restore.
+- Workflow: "Processing philosophy" — eyes, lead room, never cut the subject, no dead space,
+  bokeh, print exposure, warmth, damage check, eyes-open frames.
+
+### Fixed
+- expert_finish: glow outline around subjects against smooth sky/grass (feather now inside the
+  edge, guided-filter snapped; even background burn). Teal cast on pale fur removed in the finish.
+
 ## raw-to-jpeg 3.4.0 — 2026-11-23 (delivery gate)
 
 ### Fixed

@@ -15,6 +15,8 @@ Full pipeline (each stage is its own tool in tools/, all intermediates lossless 
                local WB for shaded fur, face clarity + eye lift, neutral dark markings.
   3. UPSCALE   upscale_print.py   largest useful print size = 3x: defringe, Lanczos in 2x steps,
                luminance-only detail-masked USM (r2.0 scaled / 90% / t2); 300 ppi.
+  3b. TONE     print_tone.py      real blacks, mid-tones <= 128, highlight roll-off (sunlit animals were
+               coming out white/milky); plan "tone": false to skip, "warm": 0.04 for golden scenes.
   4. SIGN      sign_image.py      signature bottom-right on copies in Processed/signed/.
 
 Folder layout (default):
@@ -55,11 +57,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import photo_develop, expert_finish, upscale_print, sign_image  # noqa: E402
-import verify_delivery  # noqa: E402
+import verify_delivery, print_tone  # noqa: E402
 import best_shots  # noqa: E402
 
-VERSION = "3.4.0"
-RELEASED = "2026-11-23 14:00 PST"
+VERSION = "3.5.0"
+RELEASED = "2026-11-23 15:00 PST"
 RAW_EXTENSIONS = {'.cr2', '.cr3', '.nef', '.nrw', '.arw', '.raf', '.dng', '.orf', '.rw2',
                   '.pef', '.srw', '.3fr', '.mef', '.mrw', '.rwl', '.x3f', '.erf'}
 REPO = HERE.parent
@@ -105,8 +107,20 @@ def process(raw, out_dir, o, sig_dir, log):
             fin = dev
         std = out_dir / f'{stem}_expert.jpg'
         from PIL import Image
+        import numpy as np
         im = Image.open(fin)
         info = {k: im.info[k] for k in ('icc_profile', 'dpi') if k in im.info}
+        if o.get('tone', True) or o.get('warm'):
+            # print tone: real blacks, mid-tones <= 128, highlight roll-off, optional warmth
+            arr = np.asarray(im.convert('RGB')).astype(np.float32) / 255
+            rep = []
+            if o.get('tone', True):
+                arr = print_tone.tone(arr, warm=float(o.get('warm') or 0), report=rep)
+            else:
+                arr = print_tone.tone(arr, mid_max=1.0, black=1.0, warm=float(o['warm']), report=rep, shoulder=False)
+            log(f'  print tone: {rep[0]}')
+            im = Image.fromarray((arr * 255 + 0.5).astype(np.uint8))
+            im.save(fin)                     # the print master is built from the toned image too
         im.convert('RGB').save(std, 'JPEG', quality=97, subsampling=0, **info)
         outs = [std]
         if o.get('upscale', True):

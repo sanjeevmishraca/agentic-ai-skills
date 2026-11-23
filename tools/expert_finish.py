@@ -11,6 +11,7 @@ Applied after the house-look development (photo_develop.py), on a lossless PNG:
   4. Local WB          warms shaded fur that picked up blue skylight; keeps the golden coat
   5. Face & eyes       local clarity + fine sharpening on the face, small eye-catch lift
   6. Markings          removes the blue skylight cast from dark markings (neutral black / warm brown)
+  7. Pale fur          removes the teal/cyan cast from white fur inside the subject
 
 Usage
   python expert_finish.py IN.png OUT.png|OUT.jpg [--subject x,y,w,h] [--face x,y] [--mask mask.png]
@@ -100,11 +101,32 @@ def _soft_blur(a, sigma):
     return cv2.resize(cv2.GaussianBlur(small, (0, 0), sigma / f), (W, H), interpolation=cv2.INTER_LINEAR)
 
 
+def _edge_feather(y, m, k):
+    """Subject mask feathered INSIDE the subject and snapped to image edges (no halo outside)."""
+    H, W = m.shape
+    r = max(3, int(14 * k))
+    inner = cv2.erode((m > 0.5).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)))
+    soft = cv2.GaussianBlur(inner.astype(np.float32), (0, 0), 7 * k)
+    s = min(1.0, 1600.0 / W)                                    # guided filter at ~1600 px, then upsample
+    gs = cv2.resize(_luma(np.clip(y, 0, 1)).astype(np.float32), (int(W * s), int(H * s)), interpolation=cv2.INTER_AREA)
+    ms = cv2.resize(soft, (int(W * s), int(H * s)), interpolation=cv2.INTER_AREA)
+    try:
+        ms = cv2.ximgproc.guidedFilter(gs, ms, max(2, int(10 * s * k * 5)), 1e-3)
+    except Exception:
+        pass
+    mf = cv2.resize(ms, (W, H), interpolation=cv2.INTER_LINEAR)
+    return np.clip(np.minimum(mf, cv2.dilate((m > 0.5).astype(np.float32), np.ones((3, 3), np.uint8))), 0, 1)
+
+
 def expert_finish(y, m, face=None):
     """y: RGB float 0..1, m: subject mask 0..1, face: (x, y) in pixels or None."""
     H, W = y.shape[:2]
     k = W / REF_W
-    mf = np.clip(cv2.GaussianBlur(m, (0, 0), 18 * k), 0, 1)              # feathered subject
+    # Feathered subject that follows the real edge. A plain Gaussian feather spills the subject
+    # dodge onto the background and leaves the background burn short of the edge, which reads as a
+    # bright glow outline against smooth sky/grass (Laikipia 9283, 9769). The mask is snapped to the
+    # image edges with a guided filter and its feather kept inside the subject.
+    mf = _edge_feather(y, m, k)
     halo = np.clip(_soft_blur(m, 220 * k) * 1.6, 0, 1)                   # soft light pool
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 
@@ -116,7 +138,7 @@ def expert_finish(y, m, face=None):
     grey = _luma(y)[..., None]
     y = grey + (y - grey) * (1 - bgw * (0.02 + 0.06 * red_orange))[..., None]
     grad = np.clip(1 - yy / (0.45 * H), 0, 1) ** 1.3
-    y = y * (1 - bgw * (0.03 + 0.08 * grad) * (1 - 0.6 * halo))[..., None]
+    y = y * (1 - bgw * (0.03 + 0.08 * grad))[..., None]   # even burn: easing it near the subject read as a glow
 
     # 2. Subject dodge (luminance ratio -> hue/chroma preserved; darks excluded)
     # The light pool around the subject is only for backgrounds DARKER than the animal; where the
@@ -124,7 +146,7 @@ def expert_finish(y, m, face=None):
     Lsub = float(np.sum(_luma(y) * mf) / max(np.sum(mf), 1e-6))
     darker_bg = np.clip((Lsub - _luma(y)) / 0.15, 0, 1)
     halo = halo * darker_bg
-    lift = 0.22 * mf + 0.06 * halo * (1 - mf)
+    lift = 0.22 * mf + 0.03 * halo * (1 - mf)
     Lo = np.maximum(_luma(y), 1e-4)
     keepdark = np.clip((Lo - 0.18) / 0.17, 0, 1)
     Ln = np.clip(Lo + 1.6 * lift * keepdark * Lo * (1 - Lo) ** 2, 0, 1)
@@ -154,6 +176,10 @@ def expert_finish(y, m, face=None):
     dk = mf * np.clip((0.40 - Ld) / 0.25, 0, 1)
     y = y + (Ld[..., None] - y) * (0.75 * dk)[..., None]
     y = y * np.stack([1 + 0.04 * dk, 1 + 0.01 * dk, 1 - 0.04 * dk], -1)
+
+    # 6. Pale fur: no teal/cyan cast (skylight + dehaze turned white muzzles teal, Laikipia 0059/0093)
+    import print_tone
+    y = y * (1 - mf[..., None]) + print_tone.decool(np.clip(y, 0, 1)) * mf[..., None]
     return np.clip(y, 0, 1)
 
 
