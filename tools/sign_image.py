@@ -48,7 +48,7 @@ def sign(src: Path, out_dir: Path, a):
     out_dir.mkdir(parents=True, exist_ok=True)
     dst = out_dir / src.name
     kw = dict(info)
-    if src.suffix.lower() in (".jpg", ".jpeg"): kw.update(quality=100, subsampling=0)
+    if src.suffix.lower() in (".jpg", ".jpeg"): kw.update(quality=97, subsampling=0)
     if src.suffix.lower() in (".tif", ".tiff"): kw.update(compression="tiff_lzw")
     out.save(dst, **kw)
     print(f"signed ({color}): {dst}")

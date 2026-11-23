@@ -3,8 +3,11 @@ ellipse), then blur and slightly subdue everything else with a feathered falloff
 import sys, numpy as np, cv2
 from PIL import Image
 
-def separate(img, box, core, blur=7.0, subdue=0.88, feather=14):
+def separate(img, box, core, blur=7.0, subdue=0.88, feather=14, poly=None):
     H, W = img.shape[:2]
+    if poly is not None:                          # hand-drawn outline beats GrabCut on busy frames
+        fgp = np.zeros((H, W), np.uint8); cv2.fillPoly(fgp, [np.asarray(poly, np.int32)], 255)
+        return _apply(img, fgp.astype(np.float32) / 255, blur, subdue, feather)
     s = 900.0 / W
     small = cv2.resize(img, (int(W * s), int(H * s)), interpolation=cv2.INTER_AREA)
     h, w = small.shape[:2]
@@ -21,6 +24,11 @@ def separate(img, box, core, blur=7.0, subdue=0.88, feather=14):
         fg = np.where(lab == 1 + int(np.argmax(st[1:, cv2.CC_STAT_AREA])), 255, 0).astype(np.uint8)
     fg = cv2.morphologyEx(fg, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
     fg = cv2.resize(fg, (W, H), interpolation=cv2.INTER_LINEAR).astype(np.float32) / 255
+    return _apply(img, fg, blur, subdue, feather)
+
+
+def _apply(img, fg, blur, subdue, feather):
+    H, W = img.shape[:2]
     a = np.clip(cv2.GaussianBlur(fg, (0, 0), feather * W / 2500), 0, 1)[..., None]
     f = img.astype(np.float32)
     # lens-like falloff: blur grows with distance from the subject (near branches only slightly soft)
@@ -43,10 +51,12 @@ if __name__ == '__main__':
     ap.add_argument('--core', default='[]', help='JSON list of sure-subject ellipses [cx,cy,rx,ry] (fractions)')
     ap.add_argument('--crop', help='x0,y0,x1 fractions; height follows 3:2')
     ap.add_argument('--blur', type=float, default=7.0)
+    ap.add_argument('--poly', help='.npy of subject outline points in image pixels (overrides GrabCut)')
     a = ap.parse_args()
     pil = Image.open(a.inp); info = {k: pil.info[k] for k in ('icc_profile', 'exif', 'dpi') if k in pil.info}
     img = np.asarray(pil.convert('RGB'))
-    out, fg = separate(img, tuple(float(v) for v in a.box.split(',')), json.loads(a.core), blur=a.blur)
+    out, fg = separate(img, tuple(float(v) for v in a.box.split(',')), json.loads(a.core), blur=a.blur,
+                       poly=np.load(a.poly) if a.poly else None)
     H, W = out.shape[:2]
     if a.crop:
         fx0, fy0, fx1 = (float(v) for v in a.crop.split(','))
