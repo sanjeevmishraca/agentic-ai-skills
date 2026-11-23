@@ -40,7 +40,13 @@ Usage
             crop is in fractions of the full frame; subject/face in fractions of the CROPPED frame.
             Options on the command line apply to every image unless the plan overrides them.
 
-Exit codes: 0 success | 1 bad args | 2 no RAW files | 4 partial failures
+Delivery gate (3.4.0): output defaults to a NEW dated folder <shoot>/Processed/<date> final and a
+non-empty output folder is refused (exit 5) unless --allow-existing. After processing, verify_delivery
+writes delivery_manifest.json and checks the folder holds exactly the produced files (exit 6 if not).
+Re-run `verify_delivery.py check` against the folder the user looks at before reporting done.
+
+Exit codes: 0 success+verified | 1 bad args | 2 no RAW files | 4 partial failures | 5 output not empty
+            | 6 delivery verification failed
 """
 import argparse, json, os, sys, tempfile, time, zipfile
 from pathlib import Path
@@ -49,10 +55,11 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 import photo_develop, expert_finish, upscale_print, sign_image  # noqa: E402
+import verify_delivery  # noqa: E402
 import best_shots  # noqa: E402
 
-VERSION = "3.3.0"
-RELEASED = "2026-11-20 13:40 PST"
+VERSION = "3.4.0"
+RELEASED = "2026-11-23 14:00 PST"
 RAW_EXTENSIONS = {'.cr2', '.cr3', '.nef', '.nrw', '.arw', '.raf', '.dng', '.orf', '.rw2',
                   '.pef', '.srw', '.3fr', '.mef', '.mrw', '.rwl', '.x3f', '.erf'}
 REPO = HERE.parent
@@ -128,6 +135,9 @@ def main():
     ap.add_argument('--sig-dir')
     ap.add_argument('--skip-pick', action='store_true', help='process the existing <input>/Best Images folder')
     ap.add_argument('--all', action='store_true', help='process every RAW, no best-shot picking')
+    ap.add_argument('--allow-existing', action='store_true',
+                    help='allow writing into a non-empty output folder (default: refuse - every delivery '
+                         'goes into a new, empty folder so stale files from earlier runs cannot mix in)')
     ap.add_argument('--version', action='version', version=f'raw_to_jpeg {VERSION} ({RELEASED})')
     a = ap.parse_args()
 
@@ -145,7 +155,18 @@ def main():
     if not raws:
         print('No RAW files found. Supported: ' + ', '.join(sorted(RAW_EXTENSIONS)))
         sys.exit(2)
-    out_dir = Path(a.output) if a.output else base / 'Processed'
+    if a.output:
+        out_dir = Path(a.output)
+    else:  # fresh, dated delivery folder: <shoot>/Processed/<YYYY-MM-DD> final[ 2, 3 ...]
+        root = base / 'Processed' / f'{time.strftime("%Y-%m-%d")} final'
+        out_dir, k = root, 2
+        while out_dir.exists() and any(out_dir.iterdir()):
+            out_dir, k = root.with_name(f'{root.name} {k}'), k + 1
+    if out_dir.exists() and any(out_dir.iterdir()) and not a.allow_existing:
+        print(f'REFUSED: output folder is not empty: {out_dir}\n'
+              f'  Every delivery goes into a new, empty folder so files from earlier runs cannot mix in.\n'
+              f'  Pick a new --output, or pass --allow-existing if you really mean to add to it.')
+        sys.exit(5)
     out_dir.mkdir(parents=True, exist_ok=True)
     plan = json.load(open(a.plan)) if a.plan else {}
 
@@ -176,7 +197,22 @@ def main():
             results['failed'].append(dict(raw=str(raw), error=str(e)))
     json.dump(results, open(TMP / 'raw_processing_results.json', 'w'), indent=2)
     log(f'done: {len(results["processed"])} ok, {len(results["failed"])} failed')
-    sys.exit(4 if results['failed'] else 0)
+    if results['failed']:
+        log('delivery NOT verified: fix the failures first')
+        sys.exit(4)
+    # Delivery gate: record exactly what was produced, then verify the folder holds only that.
+    approved = ','.join(Path(r['raw']).stem for r in results['processed'])
+    for argv in (['manifest', str(out_dir), '--approved', approved],
+                 ['check', '--manifest', str(out_dir / verify_delivery.MANIFEST_NAME), '--dir', str(out_dir)]):
+        sys.argv = ['verify_delivery.py'] + argv
+        try:
+            verify_delivery.main()
+        except SystemExit as e:
+            if e.code:
+                log('delivery verification FAILED - do not hand this folder over')
+                sys.exit(6)
+    log(f'delivery verified: {out_dir}')
+    sys.exit(0)
 
 
 if __name__ == '__main__':

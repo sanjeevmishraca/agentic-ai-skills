@@ -1,5 +1,22 @@
 # Changelog
 
+## raw-to-jpeg 3.4.0 — 2026-11-23 (delivery gate)
+
+### Fixed
+- Stale files from earlier runs could sit next to the new finals (Laikipia: rejected 8533/8603 were
+  still in `Processed\signed` when the work was reported as done). Every run now writes to a NEW
+  dated folder `Processed/<date> final`, and a non-empty `--output` is refused (exit 5) unless
+  `--allow-existing`.
+
+### Added
+- tools/verify_delivery.py — `manifest` records exactly the approved files (name, size, sha256) and
+  refuses a folder holding anything unapproved; `check` compares a local folder or remote listings
+  (device bridge) with the manifest and prints PASS/FAIL with every EXTRA / MISSING / SIZE problem
+  (exit 3 on FAIL).
+- raw_to_jpeg runs manifest + check at the end of every clean batch (exit 6 if verification fails).
+- Workflow Step 6 is now a mandatory delivery gate: no handover without a PASS against the folder
+  the photographer actually looks at; the PASS report is part of the handover.
+
 ## raw-to-jpeg 3.3.0 — 2026-11-20 (print-business review of Laikipia)
 
 ### Fixed

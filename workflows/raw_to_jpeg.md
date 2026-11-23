@@ -136,19 +136,40 @@ Write `plan.json` with per-image overrides and re-run with `--plan plan.json`:
 
 Always carry forward previous settings; only change what was asked.
 
-### Step 6 – Deliver
-Report: files processed, output folder, print size of each master (px and inches at 300 ppi),
-any failures. The final print file is the one in `Processed/signed/`.
+### Step 6 – Deliver (delivery gate — mandatory, no exceptions)
+A delivery is **not done** until `verify_delivery.py check` prints **PASS** against the folder the
+photographer actually looks at. (Lesson 2026-11-23: rejected 8533/8603 were still sitting in
+`Processed\signed` from an earlier run while the work was reported as done.)
+
+1. **Fresh folder every time.** raw_to_jpeg writes to a new dated folder
+   (`Processed/<YYYY-MM-DD> final`, then `… final 2`, …) and refuses a non-empty `--output` (exit 5).
+   Never write finals on top of an older run; never use `--allow-existing` for a delivery.
+2. **Manifest of exactly what was approved.** After your Step 3 review (and any retouch/sign steps
+   done outside the batch), drop rejected images, then:
+   `python tools/verify_delivery.py manifest <delivery_dir> --approved <ids> [--allow-extra <user's own files>]`
+   It refuses if anything unapproved or any extra folder is present, or an approved image is missing.
+   (raw_to_jpeg does this automatically at the end of a clean batch, exit 6 if it fails.)
+3. **Copy, then verify the destination itself.** If the folder lives on another machine (device
+   bridge), list the destination root and `signed/` with `device_list_dir`, save each listing JSON,
+   and run `verify_delivery.py check --manifest … --listing .=root.json --listing signed=signed.json`.
+   Locally: `check --manifest … --dir <folder>`. Any EXTRA / MISSING / SIZE / unexpected folder =
+   FAIL: move the offenders out (to `_to_delete\`, never delete), re-list, re-check.
+4. **If cleanup can't run** (PC locked, file in use, bridge down): do not hand over. Say plainly
+   that the folder is not clean yet and what is blocking it.
+5. **Handover = the PASS report.** Paste the checker's result and the approved list, then: files
+   processed, folder, print size of each master (px and inches at 300 ppi). The print file is the
+   one in `signed/`.
 
 ---
 
-## Outputs (default `<source>/Processed/`)
+## Outputs (default `<source>/Processed/<YYYY-MM-DD> final/`)
 
 | File | Spec |
 |------|------|
 | `<name>_expert.jpg` | finished image — JPEG q97 4:4:4, sRGB, 300 ppi, Artist/Copyright EXIF |
 | `<name>_expert_print3x.jpg` | print master, 3× — JPEG q100 4:4:4, sRGB, 300 ppi |
 | `signed/<name>_expert*.jpg` | signed copies (signature 5.25 % of long edge, 1 % inset, 85 % opacity, auto black/white) |
+| `delivery_manifest.json` | name, size, sha256 of every approved file — the delivery gate checks against this |
 | `.tmp/raw_processing.log` | per-file log |
 | `.tmp/raw_processing_results.json` | machine-readable summary |
 
