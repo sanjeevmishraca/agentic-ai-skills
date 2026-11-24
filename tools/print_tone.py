@@ -51,6 +51,20 @@ def decool(a, strength=0.85):
     return np.clip(a * (1 - w) + warmgrey * w, 0, 1)
 
 
+def golden(a, strength=1.0):
+    """Early-morning / evening golden-light grade: golden highlights, warm shadows (0059, 0093)."""
+    a = np.clip(a.astype(np.float32), 0, 1)
+    L = _luma(a)[..., None]
+    w = np.clip(L * 1.4, 0, 1) * strength
+    a = a * (1 - w) + a * np.array([1.07, 1.015, 0.88], np.float32) * w
+    a = a * np.array([1 + 0.02 * strength, 1.0, 1 - 0.04 * strength], np.float32)
+    L = _luma(a)[..., None]
+    sh = np.clip(1 - L * 1.6, 0, 1) * 0.6 * strength
+    a = a * (1 - sh) + a * np.array([1.06, 1.0, 0.86], np.float32) * sh
+    a = a * np.array([1 + 0.015 * strength, 1.0, 1 - 0.03 * strength], np.float32)
+    return np.clip(a, 0, 1)
+
+
 def tone(a, mid_target=MID_TARGET, mid_max=MID_MAX, black=BLACK_TARGET, warm=0.0, report=None, shoulder=True):
     """a: float RGB 0..1. Returns a new float array."""
     a = np.clip(a.astype(np.float32), 0, 1)

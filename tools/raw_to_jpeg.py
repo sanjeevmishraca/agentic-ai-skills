@@ -60,8 +60,8 @@ import photo_develop, expert_finish, upscale_print, sign_image  # noqa: E402
 import verify_delivery, print_tone  # noqa: E402
 import best_shots  # noqa: E402
 
-VERSION = "3.5.0"
-RELEASED = "2026-11-23 15:00 PST"
+VERSION = "3.6.0"
+RELEASED = "2026-11-23 16:00 PST"
 RAW_EXTENSIONS = {'.cr2', '.cr3', '.nef', '.nrw', '.arw', '.raf', '.dng', '.orf', '.rw2',
                   '.pef', '.srw', '.3fr', '.mef', '.mrw', '.rwl', '.x3f', '.erf'}
 REPO = HERE.parent
@@ -110,7 +110,7 @@ def process(raw, out_dir, o, sig_dir, log):
         import numpy as np
         im = Image.open(fin)
         info = {k: im.info[k] for k in ('icc_profile', 'dpi') if k in im.info}
-        if o.get('tone', True) or o.get('warm'):
+        if o.get('tone', True) or o.get('warm') or o.get('golden'):
             # print tone: real blacks, mid-tones <= 128, highlight roll-off, optional warmth
             arr = np.asarray(im.convert('RGB')).astype(np.float32) / 255
             rep = []
@@ -118,6 +118,9 @@ def process(raw, out_dir, o, sig_dir, log):
                 arr = print_tone.tone(arr, warm=float(o.get('warm') or 0), report=rep)
             else:
                 arr = print_tone.tone(arr, mid_max=1.0, black=1.0, warm=float(o['warm']), report=rep, shoulder=False)
+            if o.get('golden'):
+                arr = print_tone.golden(arr, float(o['golden']))
+                rep[0] += f', golden {float(o["golden"]):.1f}'
             log(f'  print tone: {rep[0]}')
             im = Image.fromarray((arr * 255 + 0.5).astype(np.uint8))
             im.save(fin)                     # the print master is built from the toned image too

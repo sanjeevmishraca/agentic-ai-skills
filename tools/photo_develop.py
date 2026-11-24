@@ -52,7 +52,7 @@ def render_linear(path, half=False):
     y0, x0 = (h - ch) // 2, (w - cw) // 2
     return rgb[y0:y0 + ch, x0:x0 + cw]
 
-EDGE_EPS = float(os.environ.get('RTJ_EDGE_EPS', '0.06'))   # was 0.25: halos along subject edges against bright backgrounds
+EDGE_EPS = float(os.environ.get('RTJ_EDGE_EPS', '0.02'))   # 0.25 -> 0.06 -> 0.02: halos along subject edges against sky (giraffe 0192)
 
 def edge_aware(a, frac, eps=None):
     eps = EDGE_EPS if eps is None else eps
@@ -103,7 +103,12 @@ def develop(lin, ev, g, st=STYLE, lut=None, fast=False):
     cl = st['clarity'] / 100.0 * g['cla']
     if cl:
         Ly = luma(np.clip(y, 0, 1))
-        detail = Ly - blur(Ly, 0.008)
+        # edge-aware base: a Gaussian base puts a light/dark rim along every strong edge (glow
+        # around a giraffe against blue sky). The guided filter keeps the edge out of the base.
+        h_, w_ = Ly.shape
+        base_c = cv2.ximgproc.guidedFilter(Ly.astype(np.float32), Ly.astype(np.float32),
+                                           max(2, int(0.008 * max(h_, w_))), 0.004)
+        detail = Ly - base_c
         wmid = 1 - np.abs(Ly - 0.5) * 2
         y = y + (cl * 0.9 * detail * np.clip(wmid, 0, 1))[..., None]
     y = np.clip(y, 0, 1)

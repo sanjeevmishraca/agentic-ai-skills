@@ -72,7 +72,7 @@ def subject_mask(rgb_u8, box):
     g = cv2.cvtColor(small, cv2.COLOR_RGB2GRAY).astype(np.float32)
     tex = cv2.GaussianBlur(np.abs(cv2.Laplacian(cv2.GaussianBlur(g, (0, 0), 1.0), cv2.CV_32F)), (0, 0), 4)
     textured = (tex > max(2.0, np.percentile(tex, 25))).astype(np.uint8)
-    textured = cv2.dilate(textured, np.ones((9, 9), np.uint8))      # keep fur edges against smooth sky
+    textured = cv2.dilate(textured, np.ones((3, 3), np.uint8))      # keep fur edges, but don't swallow a band of sky
     fg = fg * textured
     fg = cv2.morphologyEx(fg, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     n, lab, stats, _ = cv2.connectedComponentsWithStats(fg)
@@ -101,12 +101,32 @@ def _soft_blur(a, sigma):
     return cv2.resize(cv2.GaussianBlur(small, (0, 0), sigma / f), (W, H), interpolation=cv2.INTER_LINEAR)
 
 
+def _texture_gate(y, mf):
+    """1 on textured pixels (fur, skin, grass), ~0 on smooth sky/haze; computed at ~1000 px."""
+    H, W = mf.shape
+    s = min(1.0, 1000.0 / W)
+    g = cv2.resize(_luma(np.clip(y, 0, 1)).astype(np.float32), (int(W * s), int(H * s)), interpolation=cv2.INTER_AREA)
+    mu = cv2.GaussianBlur(g, (0, 0), 2)
+    sd = np.sqrt(np.clip(cv2.GaussianBlur(g * g, (0, 0), 2) - mu * mu, 0, None))
+    bg = cv2.resize(mf, (g.shape[1], g.shape[0])) < 0.05
+    smooth = np.percentile(sd[bg], 30) if bg.any() else np.percentile(sd, 20)
+    gate = np.clip((sd - 1.5 * smooth) / max(2.0 * smooth, 1e-3), 0, 1)
+    gate = cv2.dilate(gate, np.ones((3, 3), np.uint8))
+    gate = cv2.GaussianBlur(gate, (0, 0), 1.5)
+    # inside the solid core of the subject keep full strength (smooth giraffe patches, black coat)
+    core = cv2.erode((cv2.resize(mf, (g.shape[1], g.shape[0])) > 0.9).astype(np.uint8), np.ones((7, 7), np.uint8))
+    gate = np.maximum(gate, cv2.GaussianBlur(core.astype(np.float32), (0, 0), 3))
+    return np.clip(cv2.resize(gate, (W, H), interpolation=cv2.INTER_LINEAR), 0, 1)
+
+
 def _edge_feather(y, m, k):
     """Subject mask feathered INSIDE the subject and snapped to image edges (no halo outside)."""
     H, W = m.shape
-    r = max(3, int(14 * k))
+    # The GrabCut mask can run 20-40 px past the real edge into smooth sky; erode well past that so
+    # every treatment ends INSIDE the animal and the sky beside it is treated exactly like the rest.
+    r = max(6, int(45 * k))
     inner = cv2.erode((m > 0.5).astype(np.uint8), cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * r + 1, 2 * r + 1)))
-    soft = cv2.GaussianBlur(inner.astype(np.float32), (0, 0), 7 * k)
+    soft = cv2.GaussianBlur(inner.astype(np.float32), (0, 0), 18 * k)
     s = min(1.0, 1600.0 / W)                                    # guided filter at ~1600 px, then upsample
     gs = cv2.resize(_luma(np.clip(y, 0, 1)).astype(np.float32), (int(W * s), int(H * s)), interpolation=cv2.INTER_AREA)
     ms = cv2.resize(soft, (int(W * s), int(H * s)), interpolation=cv2.INTER_AREA)
@@ -115,7 +135,7 @@ def _edge_feather(y, m, k):
     except Exception:
         pass
     mf = cv2.resize(ms, (W, H), interpolation=cv2.INTER_LINEAR)
-    return np.clip(np.minimum(mf, cv2.dilate((m > 0.5).astype(np.float32), np.ones((3, 3), np.uint8))), 0, 1)
+    return np.clip(np.minimum(mf, soft + 0.0), 0, 1)
 
 
 def expert_finish(y, m, face=None):
@@ -127,6 +147,9 @@ def expert_finish(y, m, face=None):
     # bright glow outline against smooth sky/grass (Laikipia 9283, 9769). The mask is snapped to the
     # image edges with a guided filter and its feather kept inside the subject.
     mf = _edge_feather(y, m, k)
+    # Smooth-background gate: plain sky/haze next to the animal must never be lifted or spared the
+    # burn (Laikipia 0192 giraffe: a light band around the head against blue sky).
+    # (no texture gate: its own edge response re-created a band; the inner feather below is enough)
     halo = np.clip(_soft_blur(m, 220 * k) * 1.6, 0, 1)                   # soft light pool
     yy, xx = np.mgrid[0:H, 0:W].astype(np.float32)
 
@@ -161,8 +184,9 @@ def expert_finish(y, m, face=None):
         FX, FY = face
         def radial(cx, cy, rx, ry):
             return np.clip(1 - ((xx - cx) / rx) ** 2 - ((yy - cy) / ry) ** 2, 0, 1) ** 1.5
-        fmask = radial(FX, FY, 330 * k, 300 * k) * np.maximum(mf, 0.3)
-        eyes = radial(FX + 105 * k, FY - 45 * k, 150 * k, 70 * k)
+        inside = np.clip(mf * 2, 0, 1)            # never touch sky/background, even if --face is off
+        fmask = radial(FX, FY, 330 * k, 300 * k) * inside
+        eyes = radial(FX + 105 * k, FY - 45 * k, 150 * k, 70 * k) * inside
         Ly = _luma(np.clip(y, 0, 1))
         det = Ly - cv2.GaussianBlur(Ly, (0, 0), 12 * k)
         y = y + (0.22 * fmask * det)[..., None]

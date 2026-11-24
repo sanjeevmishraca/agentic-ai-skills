@@ -186,6 +186,19 @@ These are generic rules, not notes about one photo. Check each one before an ima
 8. **Look for processing damage** on key features (horns, eyes, whiskers) by comparing against the
    camera JPEG at 100 %.
 9. **Prefer frames with eyes open and looking at the camera.** If none exists in the sequence, say so.
+10. **No glow, ever.** Any light rim around the subject reads as over-processed. Check every
+    subject edge against sky / smooth background at 100 % with contrast boosted. (develop now uses
+    an edge-aware clarity base; the finish keeps all treatment inside the animal.)
+11. **Gaze side = the side the animal looks toward in the frame.** Before cropping, write down
+    which way the eyes/head point; put the space on that side. (9769 was cropped backwards.)
+12. **"Fix the cut tail/horn" = find a frame of the same moment where it is whole** (stage the
+    neighbouring frames, check face sharpness at 100 %), not a recrop.
+13. **Left/right eye = the animal's own left/right.** Fix that eye until it looks natural at 300 %
+    against the camera JPEG: no colour fringes, no white specks, no over-sharpened texture.
+14. **Frame with natural props.** Keep a tree trunk, rock or branch at the edge as a frame instead
+    of cropping it away.
+15. **Golden light should look golden.** Early-morning/evening frames get a clear warm/golden
+    grade (warm 0.06 + golden highlights + warm shadows), not a subtle shift.
 
 ## Outputs (default `<source>/Processed/<YYYY-MM-DD> final/`)
 

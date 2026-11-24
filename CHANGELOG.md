@@ -1,5 +1,18 @@
 # Changelog
 
+## raw-to-jpeg 3.6.0 — 2026-11-23 (no-glow rendering, golden-light grade)
+
+### Fixed
+- Glow around subjects against sky (giraffe 0192): develop clarity now uses an edge-aware base
+  instead of a Gaussian, guided-filter eps 0.06 -> 0.02; finish feathers strictly inside the animal
+  and its face/eye lift can no longer touch the background (a light blob in 9283's sky).
+
+### Added
+- `"golden": 1.0` plan option (print_tone.golden): golden highlights + warm shadows for
+  early-morning / evening light.
+- Workflow rules 10-15: no glow, gaze side, find a whole-tail frame, animal's own left/right eye,
+  frame with natural props, golden light should look golden.
+
 ## raw-to-jpeg 3.5.0 — 2026-11-23 (photographer's processing philosophy)
 
 ### Added
